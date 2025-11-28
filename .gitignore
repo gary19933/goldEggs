@@ -1,0 +1,4 @@
+node_modules
+dist
+dist-sdk
+.DS_Store
