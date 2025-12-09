@@ -1,5 +1,5 @@
 import { Application } from 'pixi.js';
-import { initGame, gameAction } from '../api/gameApi.js';
+import { initGame, gameAction, SHOULD_MOCK } from '../api/gameApi.js';
 import { AppGame } from '../game/AppGame.js';
 
 /**
@@ -16,6 +16,7 @@ export async function startGame(options = {}) {
     width,
     height,
     enableResize = true,
+    allowGuest = SHOULD_MOCK,
   } = options;
 
   if (!container) {
@@ -24,8 +25,28 @@ export async function startGame(options = {}) {
 
   const app = new Application();
 
-  const targetWidth = width ?? Math.min(window.innerWidth || 800, 1024);
-  const targetHeight = height ?? Math.min(window.innerHeight || 600, 720);
+  const resolveAuth = () => {
+    if (userId && token) return { userId, token, isGuest: false };
+    if (allowGuest) return { userId: 'guest', token: 'guest-token', isGuest: true };
+    return null;
+  };
+
+  const resolveWidth = () => {
+    if (width) return width;
+    const containerWidth = container.clientWidth || 0;
+    const viewportWidth = window.innerWidth || 0;
+    return Math.max(containerWidth, viewportWidth, 320);
+  };
+
+  const resolveHeight = () => {
+    if (height) return height;
+    const containerHeight = container.clientHeight || 0;
+    const viewportHeight = window.innerHeight || 0;
+    return Math.max(containerHeight, viewportHeight, 320);
+  };
+
+  const targetWidth = resolveWidth();
+  const targetHeight = resolveHeight();
 
   await app.init({
     width: targetWidth,
@@ -45,8 +66,8 @@ export async function startGame(options = {}) {
 
   if (enableResize) {
     const onResize = () => {
-      const newWidth = Math.min(window.innerWidth || targetWidth, 1024);
-      const newHeight = Math.min(window.innerHeight || targetHeight, 720);
+      const newWidth = resolveWidth();
+      const newHeight = resolveHeight();
       app.renderer.resize(newWidth, newHeight);
       game.resize(newWidth, newHeight);
     };
@@ -58,7 +79,12 @@ export async function startGame(options = {}) {
 
   try {
     game.showLoading('Connecting to game...');
-    const initResponse = await initGame({ userId, token, lang });
+    const auth = resolveAuth();
+    const initResponse = await initGame({
+      userId: auth?.userId ?? '',
+      token: auth?.token ?? '',
+      lang,
+    });
     game.setConfig(initResponse?.config);
     game.updateBalance(initResponse?.balance ?? 0);
     game.ready();
@@ -67,8 +93,9 @@ export async function startGame(options = {}) {
     game.showError('Failed to initialize game.');
   }
 
-  async function handleAction(betAmount) {
-    if (!userId || !token) {
+  async function handleAction(actionPayload) {
+    const auth = resolveAuth();
+    if (!auth) {
       game.showError('Missing user credentials. Check URL params.');
       return;
     }
@@ -76,20 +103,26 @@ export async function startGame(options = {}) {
     game.lockUI(true);
 
     try {
+      const betAmount =
+        typeof actionPayload === 'number' ? actionPayload : actionPayload?.betAmount;
+      const eggId = typeof actionPayload === 'object' ? actionPayload?.eggId : undefined;
+
       const result = await gameAction({
-        userId,
-        token,
+        userId: auth.userId,
+        token: auth.token,
         action: 'spin',
         betAmount,
+        eggId,
       });
 
-      game.showResult(result);
+      await game.showResult(result);
       if (typeof onResult === 'function') {
         onResult({
           userId,
           result: result?.result,
           winAmount: result?.winAmount,
           balance: result?.balance,
+          eggId: eggId ?? result?.eggId,
         });
       }
     } catch (error) {

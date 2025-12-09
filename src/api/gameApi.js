@@ -1,6 +1,6 @@
 const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const USE_MOCK = import.meta.env.VITE_API_USE_MOCK === 'true';
-const SHOULD_MOCK = USE_MOCK || (!rawBaseUrl && import.meta.env.DEV);
+export const SHOULD_MOCK = USE_MOCK || (!rawBaseUrl && import.meta.env.DEV);
 
 let mockBalance = 1000;
 let mockWinChance = 0.5;
@@ -48,6 +48,11 @@ function mockInit(payload = {}) {
     balance: mockBalance,
     config: {
       betSizes: [1, 5, 10],
+      eggs: [
+        { id: 'gold', label: '金蛋', bet: 1 },
+        { id: 'ruby', label: '红蛋', bet: 5 },
+        { id: 'jade', label: '玉蛋', bet: 10 },
+      ],
       currency: 'CNY',
     },
     lang,
@@ -56,7 +61,7 @@ function mockInit(payload = {}) {
 }
 
 function mockAction(payload = {}) {
-  const { betAmount = 1 } = payload;
+  const { betAmount = 1, eggId } = payload;
   const roll = Math.random();
   const didWin = roll < mockWinChance;
 

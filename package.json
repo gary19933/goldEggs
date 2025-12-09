@@ -10,7 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "pixi.js": "^8.1.2"
+    "pixi.js": "^8.1.2",
+    "sweetalert2": "^11.26.4"
   },
   "devDependencies": {
     "vite": "^5.2.0"
