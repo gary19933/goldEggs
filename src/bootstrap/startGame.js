@@ -61,6 +61,7 @@ export async function startGame(options = {}) {
     app,
     userId,
     lang,
+    containerElement: container,
     onAction: handleAction,
   });
 
@@ -106,13 +107,20 @@ export async function startGame(options = {}) {
       const betAmount =
         typeof actionPayload === 'number' ? actionPayload : actionPayload?.betAmount;
       const eggId = typeof actionPayload === 'object' ? actionPayload?.eggId : undefined;
+      const action =
+        (typeof actionPayload === 'object' && actionPayload?.action) || 'spin';
+      const tryIndex =
+        typeof actionPayload === 'object' && typeof actionPayload.tryIndex === 'number'
+          ? actionPayload.tryIndex
+          : undefined;
 
       const result = await gameAction({
         userId: auth.userId,
         token: auth.token,
-        action: 'spin',
+        action,
         betAmount,
         eggId,
+        tryIndex,
       });
 
       await game.showResult(result);

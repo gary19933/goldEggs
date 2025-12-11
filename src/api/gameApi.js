@@ -3,7 +3,6 @@ const USE_MOCK = import.meta.env.VITE_API_USE_MOCK === 'true';
 export const SHOULD_MOCK = USE_MOCK || (!rawBaseUrl && import.meta.env.DEV);
 
 let mockBalance = 1000;
-let mockWinChance = 0.5;
 
 function buildUrl(path) {
   if (!rawBaseUrl) return path;
@@ -49,11 +48,26 @@ function mockInit(payload = {}) {
     config: {
       betSizes: [1, 5, 10],
       eggs: [
-        { id: 'gold', label: '金蛋', bet: 1 },
-        { id: 'ruby', label: '红蛋', bet: 5 },
-        { id: 'jade', label: '玉蛋', bet: 10 },
+        // Multiple entries to demo grouped counts (xN) in the UI.
+        { id: 'gold', label: 'Gold Egg', bet: 10 },
+        { id: 'gold', label: 'Gold Egg', bet: 10 },
+        { id: 'gold', label: 'Gold Egg', bet: 10 },
+        { id: 'gold', label: 'Gold Egg', bet: 10 },
+        { id: 'gold', label: 'Gold Egg', bet: 10 },
+        { id: 'ruby', label: 'Ruby Egg', bet: 25 },
+        { id: 'ruby', label: 'Ruby Egg', bet: 25 },
+        { id: 'ruby', label: 'Ruby Egg', bet: 25 },
+        { id: 'jade', label: 'Jade Egg', bet: 50 },
+        { id: 'jade', label: 'Jade Egg', bet: 50 },
+        { id: 'jade', label: 'Jade Egg', bet: 50 },
+        { id: 'emerald', label: 'Emerald Egg', bet: 35 },
+        { id: 'emerald', label: 'Emerald Egg', bet: 35 },
+        { id: 'emerald', label: 'Emerald Egg', bet: 35 },
+        { id: 'topaz', label: 'Topaz Egg', bet: 20 },
+        { id: 'topaz', label: 'Topaz Egg', bet: 20 },
       ],
-      currency: 'CNY',
+      currency: 'UCOIN',
+      maxStored: 3,
     },
     lang,
     mock: true,
@@ -61,30 +75,42 @@ function mockInit(payload = {}) {
 }
 
 function mockAction(payload = {}) {
-  const { betAmount = 1, eggId } = payload;
-  const roll = Math.random();
-  const didWin = roll < mockWinChance;
+  const { betAmount = 1, eggId, action = 'crack', tryIndex = 0 } = payload;
 
-  let winAmount = 0;
-  let outcome = 'lose';
-
-  if (didWin) {
-    const multiplier = 2 + Math.floor(Math.random() * 3); // 2x-4x
-    winAmount = betAmount * multiplier;
-    mockBalance += winAmount;
-    mockWinChance = Math.max(0.2, mockWinChance - 0.05); // winning reduces odds
-    outcome = 'win';
-  } else {
-    mockBalance = Math.max(0, mockBalance - betAmount);
-    mockWinChance = Math.min(0.8, mockWinChance + 0.05); // losing bumps odds a bit
+  if (action === 'store') {
+    return Promise.resolve({
+      status: 'ok',
+      result: 'stored',
+      winAmount: 0,
+      balance: mockBalance,
+      eggId,
+      tryIndex,
+    });
   }
+
+  if (action === 'cashout') {
+    const winAmount = betAmount;
+    return Promise.resolve({
+      status: 'ok',
+      result: 'cashout',
+      winAmount,
+      balance: mockBalance,
+      eggId,
+      tryIndex,
+    });
+  }
+
+  const didWin = Math.random() < 0.5;
+  const winAmount = didWin ? betAmount : 0;
+  mockBalance = Math.max(0, mockBalance + winAmount - betAmount);
 
   return Promise.resolve({
     status: 'ok',
-    result: outcome,
+    result: didWin ? 'win' : 'lose',
     winAmount,
     balance: mockBalance,
-    reels: [1, 2, 3],
+    eggId,
+    tryIndex,
     mock: true,
   });
 }
