@@ -37,6 +37,7 @@ export class AppGame {
     this.isLocked = false;
     this.isCracked = false;
     this.lastResultText = '';
+    this.cashoutHistory = [];
 
     this._statusBgColor = 0xfff7cf;
     this._statusTextColor = 0xffeb3b;
@@ -55,6 +56,7 @@ export class AppGame {
 
     this._setupHomeDom();
     this._setupControlsBar();
+    this._setupModalShell();
 
     this.backdrop = new Graphics();
     this.root.addChild(this.backdrop);
@@ -161,6 +163,11 @@ export class AppGame {
       padding: '32px 16px 48px',
       gap: '16px',
       overflowY: 'auto',
+      height: '100%',
+      scrollbarWidth: 'none',
+      msOverflowStyle: 'none',
+      overscrollBehavior: 'contain',
+      pointerEvents: 'auto',
       color: '#ffe082',
       fontFamily: 'Segoe UI, Arial, sans-serif',
       width: '100%',
@@ -169,6 +176,13 @@ export class AppGame {
     });
     this.containerEl.appendChild(dom);
     this.homeDomRoot = dom;
+
+    if (!document.getElementById('home-shell-style')) {
+      const style = document.createElement('style');
+      style.id = 'home-shell-style';
+      style.textContent = '#home-shell::-webkit-scrollbar { width: 0; height: 0; }';
+      document.head.appendChild(style);
+    }
   }
 
   _setupControlsBar() {
@@ -272,6 +286,109 @@ export class AppGame {
     this.soundPanel = panel;
   }
 
+  _setupModalShell() {
+    if (!this.containerEl) return;
+    if (this.modalRoot) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'game-modal';
+    Object.assign(overlay.style, {
+      position: 'absolute',
+      inset: '0',
+      display: 'none',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'rgba(10, 5, 5, 0.72)',
+      zIndex: '20',
+      padding: '16px',
+    });
+
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+      background: 'linear-gradient(160deg, rgba(45,13,13,0.98), rgba(20,8,8,0.98))',
+      border: '2px solid #ffd54f',
+      borderRadius: '16px',
+      padding: '20px 22px',
+      maxWidth: '520px',
+      width: '100%',
+      color: '#ffe082',
+      boxShadow: '0 18px 36px rgba(0,0,0,0.45)',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '12px',
+    });
+
+    const title = document.createElement('div');
+    Object.assign(title.style, {
+      fontWeight: '800',
+      fontSize: '20px',
+      color: '#ffd54f',
+    });
+
+    const body = document.createElement('div');
+    Object.assign(body.style, {
+      fontSize: '15px',
+      lineHeight: '1.5',
+      color: '#ffeeb7',
+      whiteSpace: 'pre-wrap',
+    });
+
+    const closeRow = document.createElement('div');
+    Object.assign(closeRow.style, {
+      display: 'flex',
+      justifyContent: 'flex-end',
+      gap: '10px',
+      marginTop: '6px',
+    });
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Close';
+    Object.assign(closeBtn.style, {
+      padding: '8px 14px',
+      background: '#5d4037',
+      color: '#ffe082',
+      border: 'none',
+      borderRadius: '10px',
+      fontWeight: '700',
+      cursor: 'pointer',
+    });
+    closeBtn.onclick = () => this._closeModal();
+
+    closeRow.appendChild(closeBtn);
+    panel.appendChild(title);
+    panel.appendChild(body);
+    panel.appendChild(closeRow);
+    overlay.appendChild(panel);
+
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        this._closeModal();
+      }
+    });
+
+    this.containerEl.appendChild(overlay);
+    this.modalRoot = overlay;
+    this.modalTitle = title;
+    this.modalBody = body;
+  }
+
+  _showModal(title, message) {
+    if (!this.modalRoot) return;
+    this.modalTitle.textContent = title;
+    this.modalBody.innerHTML = '';
+    this.modalBody.style.display = 'block';
+    this.modalBody.style.gap = '0';
+    this.modalBody.style.whiteSpace = 'pre-wrap';
+    this.modalBody.textContent = message;
+    this.modalRoot.style.display = 'flex';
+  }
+
+  _closeModal() {
+    if (this.modalRoot) {
+      this.modalRoot.style.display = 'none';
+    }
+  }
+
   // endregion setup -------------------------------------------------------------
 
   setConfig(config = {}) {
@@ -314,7 +431,7 @@ export class AppGame {
       this.updateBalance(balance);
     }
 
-    const egg = eggId ? this._findEggByUid(eggId) : this._getActiveEgg();
+    const egg = eggId ? this._findEggByUid(eggId, this.activeSource) : this._getActiveEgg();
 
     if (outcome === 'stored') {
       await this._playStoreAnimation();
@@ -328,6 +445,16 @@ export class AppGame {
     if (outcome === 'cashout') {
       this._removeActiveEgg();
       const amount = egg?.lastWinAmount ?? 0;
+      if (egg) {
+        this.cashoutHistory.unshift({
+          label: egg.label ?? egg.id ?? 'Egg',
+          amount,
+          time: new Date(),
+        });
+        if (this.cashoutHistory.length > 20) {
+          this.cashoutHistory.length = 20;
+        }
+      }
       this._showToast(`Cashed out RM${amount}.`, 'success');
       this._goHome();
       this.lockUI(false);
@@ -468,7 +595,11 @@ export class AppGame {
     this.homeDomRoot.appendChild(title);
 
     this.homeDomRoot.appendChild(
-      this._buildGroupedGrid(this.boughtEggs, (group) => this._enterPlay(this._pickEggFromGroup(this.boughtEggs, group.id), 'bought')),
+      this._buildGroupedGrid(
+        this.boughtEggs,
+        (group) => this._enterPlay(this._pickEggFromGroup(this.boughtEggs, group), 'bought'),
+        { emptyText: 'No purchased eggs yet.' },
+      ),
     );
 
     const storedTitle = document.createElement('h3');
@@ -483,7 +614,14 @@ export class AppGame {
     this.homeDomRoot.appendChild(storedTitle);
 
     this.homeDomRoot.appendChild(
-      this._buildGroupedGrid(this.storedEggs, (group) => this._enterPlay(this._pickEggFromGroup(this.storedEggs, group.id), 'stored')),
+      this._buildGroupedGrid(
+        this.storedEggs,
+        (group) => this._enterPlay(this._pickEggFromGroup(this.storedEggs, group), 'stored'),
+        {
+          emptyText: 'You can store up to 3 eggs for later.',
+          columns: 'repeat(3, minmax(220px, 1fr))',
+        },
+      ),
     );
 
     const reward = document.createElement('div');
@@ -503,16 +641,20 @@ export class AppGame {
     this.eggLabel.text = label;
     this.eggLabel.position.set(width / 2, height * 0.70);
 
+    const tries = egg?.tries ?? 0;
+    this.triesText.text = egg ? `Tries: ${tries}` : '';
+    this.triesText.position.set(width / 2, height * 0.62);
+
     this._drawEgg(width / 2, height * 0.38);
     this._drawCrackOverlay();
     this._updateActionButtons();
   }
 
-  _buildGroupedGrid(eggs, onCrack) {
+  _buildGroupedGrid(eggs, onCrack, { emptyText, columns } = {}) {
     const grid = document.createElement('div');
     Object.assign(grid.style, {
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+      gridTemplateColumns: columns || 'repeat(auto-fit, minmax(220px, 1fr))',
       gap: '12px',
       width: '100%',
       maxWidth: '960px',
@@ -520,7 +662,7 @@ export class AppGame {
 
     if (!eggs.length) {
       const empty = document.createElement('div');
-      empty.textContent = grid === this.storedGrid ? 'You can store up to 3 eggs for later.' : 'No stored eggs yet.';
+      empty.textContent = emptyText || 'No eggs available.';
       empty.style.color = '#ffcdd2';
       grid.appendChild(empty);
       return grid;
@@ -602,17 +744,21 @@ export class AppGame {
   _groupEggs(eggs) {
     const map = new Map();
     eggs.forEach((egg) => {
-      const key = egg.id || egg.label || 'egg';
+      const baseId = egg.id || egg.label || 'egg';
+      const betKey = typeof egg.bet === 'number' ? egg.bet : 'na';
+      const key = `${baseId}:${betKey}`;
       if (!map.has(key)) {
-        map.set(key, { ...egg, id: key, count: 0 });
+        map.set(key, { ...egg, id: baseId, groupKey: key, count: 0 });
       }
       map.get(key).count += 1;
     });
     return Array.from(map.values());
   }
 
-  _pickEggFromGroup(list, id) {
-    return list.find((egg) => egg.id === id) || list[0] || null;
+  _pickEggFromGroup(list, group) {
+    if (!group) return list[0] || null;
+    const bet = typeof group.bet === 'number' ? group.bet : undefined;
+    return list.find((egg) => egg.id === group.id && egg.bet === bet) || list[0] || null;
   }
 
   _toggleSoundPanel() {
@@ -681,23 +827,68 @@ export class AppGame {
   }
 
   _showInfoModal() {
-    Swal.fire({
-      title: 'How to play',
-      text: 'Crack your purchased eggs, store up to 3, and cash out after the second try onwards.',
-      confirmButtonText: 'Got it',
-      background: '#1d0c0c',
-      color: '#ffe082',
-    });
+    this._showModal(
+      'How to play',
+      'Crack your purchased eggs, store up to 3, and cash out after a winning crack.',
+    );
   }
 
   _showRewardsModal() {
-    const content = this.lastResultText || 'No rewards claimed yet.';
-    Swal.fire({
-      title: 'Rewards',
-      text: content,
-      confirmButtonText: 'Close',
-      background: '#1d0c0c',
-      color: '#ffe082',
+    if (!this.cashoutHistory.length) {
+      this._showModal('Rewards', 'No cashouts yet.');
+      return;
+    }
+    this._showModal('Rewards', '');
+    this.modalBody.style.display = 'flex';
+    this.modalBody.style.flexDirection = 'column';
+    this.modalBody.style.gap = '10px';
+    this.modalBody.style.maxHeight = '240px';
+    this.modalBody.style.overflowY = 'auto';
+    this.modalBody.style.paddingRight = '6px';
+
+    this.cashoutHistory.forEach((entry, index) => {
+      const when = entry.time instanceof Date
+        ? entry.time.toLocaleString()
+        : String(entry.time || '');
+      const row = document.createElement('div');
+      Object.assign(row.style, {
+        display: 'grid',
+        gridTemplateColumns: '1fr auto',
+        alignItems: 'center',
+        gap: '12px',
+        padding: '10px 12px',
+        borderRadius: '12px',
+        background: 'rgba(30, 12, 12, 0.7)',
+        border: '1px solid rgba(255, 213, 79, 0.25)',
+      });
+
+      const left = document.createElement('div');
+      left.textContent = `${index + 1}. ${entry.label}`;
+      Object.assign(left.style, {
+        fontWeight: '700',
+        color: '#ffe082',
+      });
+
+      const right = document.createElement('div');
+      right.textContent = `RM${entry.amount}`;
+      Object.assign(right.style, {
+        fontWeight: '800',
+        color: '#ffd54f',
+        textAlign: 'right',
+      });
+
+      const time = document.createElement('div');
+      time.textContent = when;
+      Object.assign(time.style, {
+        gridColumn: '1 / -1',
+        fontSize: '12px',
+        color: '#d7c6a0',
+      });
+
+      row.appendChild(left);
+      row.appendChild(right);
+      row.appendChild(time);
+      this.modalBody.appendChild(row);
     });
   }
   // endregion rendering ---------------------------------------------------------
@@ -1089,6 +1280,7 @@ export class AppGame {
     const tries = egg?.tries ?? 0;
     const canCashout = tries > 0;
     const showSecondary = tries > 0;
+    const hideHome = tries > 0;
     const disableAlpha = 0.5;
     const disableMode = 'none';
 
@@ -1103,6 +1295,10 @@ export class AppGame {
 
     if (this.saveButton) this.saveButton.visible = !!egg && showSecondary;
     if (this.cashoutButton) this.cashoutButton.visible = !!egg && showSecondary;
+    if (this.backButton) {
+      this.backButton.visible = !hideHome;
+      this.backButton.eventMode = !hideHome && !this.isLocked ? 'static' : disableMode;
+    }
   }
 
   _moveActiveToStored() {
@@ -1113,8 +1309,9 @@ export class AppGame {
     if (!exists) {
       this.storedEggs.push({ ...egg });
     }
-    this._removeActiveEgg();
-    this._renderHome();
+    this._removeEggFromArray(this.boughtEggs, egg.uid);
+    this.activeEggUid = null;
+    this._renderHomeDom();
   }
 
   _removeActiveEgg() {
