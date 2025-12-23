@@ -38,6 +38,9 @@ export class AppGame {
     this.isCracked = false;
     this.lastResultText = '';
     this.cashoutHistory = [];
+    this.activeTabId = 'gold';
+    this.previousTabId = null;
+    this._prevEggOnStoredLose = null;
 
     this._statusBgColor = 0xfff7cf;
     this._statusTextColor = 0xffeb3b;
@@ -57,22 +60,23 @@ export class AppGame {
     this._setupHomeDom();
     this._setupControlsBar();
     this._setupModalShell();
+    this._setupEggTabs();
 
     this.backdrop = new Graphics();
     this.root.addChild(this.backdrop);
     this._drawBackdrop(renderer.width, renderer.height);
 
-    this.titleText = new Text('Golden Eggs', {
-      fontFamily: 'Segoe UI, Arial, sans-serif',
-      fontSize: 32,
-      fontWeight: '900',
-      fill: 0xffd54f,
-      stroke: '#7c0f0f',
-      strokeThickness: 3,
-      align: 'center',
-    });
-    this.titleText.anchor.set(0.5, 0);
-    this.root.addChild(this.titleText);
+    // this.titleText = new Text('Golden Eggs', {
+    //   fontFamily: 'Segoe UI, Arial, sans-serif',
+    //   fontSize: 32,
+    //   fontWeight: '900',
+    //   fill: 0xffd54f,
+    //   stroke: '#7c0f0f',
+    //   strokeThickness: 3,
+    //   align: 'center',
+    // });
+    // this.titleText.anchor.set(0.5, 0);
+    // this.root.addChild(this.titleText);
 
     this.statusBg = new Graphics();
     this.root.addChild(this.statusBg);
@@ -122,7 +126,7 @@ export class AppGame {
     });
     this.playContainer.addChild(this.actionButton);
 
-    this.saveButton = this._createButton('Save for later', () => {
+    this.saveButton = this._createButton('Keep', () => {
       if (this.isLocked) return;
       this._handleStoreActive();
     }, { width: 180, height: 54, color: 0x7c3e00 });
@@ -138,6 +142,7 @@ export class AppGame {
       if (this.isLocked) return;
       this._goHome();
     }, { width: 64, height: 46, color: 0x4e342e, fontSize: 22 });
+    this.backButton.visible = false;
     this.playContainer.addChild(this.backButton);
 
     this._toggleMode('home');
@@ -160,7 +165,7 @@ export class AppGame {
       flexDirection: 'column',
       alignItems: 'flex-start',
       justifyContent: 'flex-start',
-      padding: '32px 16px 48px',
+      padding: '96px 16px 48px',
       gap: '16px',
       overflowY: 'auto',
       height: '100%',
@@ -191,9 +196,12 @@ export class AppGame {
     Object.assign(bar.style, {
       position: 'absolute',
       top: '12px',
+      left: '12px',
       right: '12px',
       display: 'flex',
-      gap: '8px',
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      gap: '6px',
       zIndex: '10',
     });
 
@@ -212,6 +220,31 @@ export class AppGame {
       return btn;
     };
 
+    const leftSlot = document.createElement('div');
+    Object.assign(leftSlot.style, {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+    });
+    const logo = document.createElement('div');
+    logo.textContent = 'Golden Eggs';
+    Object.assign(logo.style, {
+      fontSize: '22px',
+      fontWeight: '900',
+      color: '#ffd54f',
+      textTransform: 'uppercase',
+      letterSpacing: '1px',
+      textAlign: 'center',
+    });
+
+    const buttonWrap = document.createElement('div');
+    Object.assign(buttonWrap.style, {
+      display: 'flex',
+      justifyContent: 'flex-end',
+      gap: '8px',
+      position: 'relative',
+    });
+
     const infoBtn = makeBtn('Info');
     infoBtn.onclick = () => this._showInfoModal();
 
@@ -221,9 +254,9 @@ export class AppGame {
     const soundBtn = makeBtn('Sound');
     soundBtn.onclick = () => this._toggleSoundPanel();
 
-    bar.appendChild(infoBtn);
-    bar.appendChild(rewardsBtn);
-    bar.appendChild(soundBtn);
+    buttonWrap.appendChild(infoBtn);
+    buttonWrap.appendChild(rewardsBtn);
+    buttonWrap.appendChild(soundBtn);
 
     const panel = document.createElement('div');
     Object.assign(panel.style, {
@@ -280,10 +313,86 @@ export class AppGame {
     };
     panel.appendChild(muteToggle);
 
-    bar.appendChild(panel);
+    buttonWrap.appendChild(panel);
 
+    const topRow = document.createElement('div');
+    Object.assign(topRow.style, {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    });
+
+    topRow.appendChild(leftSlot);
+    topRow.appendChild(buttonWrap);
+    bar.appendChild(topRow);
+    bar.appendChild(logo);
     this.containerEl.appendChild(bar);
     this.soundPanel = panel;
+  }
+
+  _setupEggTabs() {
+    if (!this.containerEl) return;
+    if (this.tabsRoot) return;
+
+    const tabs = document.createElement('div');
+    Object.assign(tabs.style, {
+      position: 'absolute',
+      top: '92px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      display: 'flex',
+      gap: '10px',
+      padding: '6px',
+      background: 'rgba(28,14,14,0.85)',
+      border: '1px solid rgba(255, 213, 79, 0.4)',
+      borderRadius: '14px',
+      zIndex: '9',
+    });
+
+    const makeTab = (id, label) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      Object.assign(btn.style, {
+        padding: '8px 14px',
+        background: 'rgba(45,13,13,0.9)',
+        color: '#ffd54f',
+        border: '2px solid transparent',
+        borderRadius: '12px',
+        fontWeight: '800',
+        cursor: 'pointer',
+        minWidth: '140px',
+      });
+      btn.onclick = () => this._selectEggTab(id);
+      return btn;
+    };
+
+    const goldTab = makeTab('gold', 'Gold - RM100');
+    const premiumTab = makeTab('premium', 'Premium - RM1000');
+
+    tabs.appendChild(goldTab);
+    tabs.appendChild(premiumTab);
+
+    this.containerEl.appendChild(tabs);
+    this.tabsRoot = tabs;
+    this.tabButtons = { gold: goldTab, premium: premiumTab };
+    this._refreshEggTabs();
+  }
+
+  _refreshEggTabs() {
+    if (!this.tabButtons) return;
+    Object.entries(this.tabButtons).forEach(([id, btn]) => {
+      const active = id === this.activeTabId;
+      btn.style.borderColor = active ? '#ffd54f' : 'transparent';
+      btn.style.background = active ? 'rgba(90,40,10,0.95)' : 'rgba(45,13,13,0.9)';
+      btn.style.color = active ? '#fff0b3' : '#ffd54f';
+    });
+  }
+
+  _updateTabsVisibility() {
+    if (!this.tabsRoot) return;
+    const egg = this._getActiveEgg();
+    const shouldHide = this.isLocked || (egg && (egg.tries ?? 0) > 0);
+    this.tabsRoot.style.display = this.mode === 'play' && !shouldHide ? 'flex' : 'none';
   }
 
   _setupModalShell() {
@@ -392,15 +501,21 @@ export class AppGame {
   // endregion setup -------------------------------------------------------------
 
   setConfig(config = {}) {
-    if (Array.isArray(config.eggs)) {
-      // Eggs provided are treated as already purchased.
-      this.boughtEggs = config.eggs.map((egg) => this._createEggInstance(egg));
-      this.activeEggUid = this.boughtEggs[0]?.uid ?? null;
-    }
+    this._initTabEggs();
     this.currency = config.currency || this.currency || '';
     this.maxStored = typeof config.maxStored === 'number' ? config.maxStored : 3;
     this._renderHomeDom();
     this._renderPlay();
+  }
+
+  _initTabEggs() {
+    const gold = this._createEggInstance({ id: 'gold', label: 'Gold Egg', bet: 100 });
+    const premium = this._createEggInstance({ id: 'premium', label: 'Premium Egg', bet: 1000 });
+    this.boughtEggs = [gold, premium];
+    this.activeTabId = 'gold';
+    this.activeEggUid = gold.uid;
+    this.activeSource = 'bought';
+    this._refreshEggTabs();
   }
 
   updateBalance(amount) {
@@ -421,7 +536,7 @@ export class AppGame {
 
   ready() {
     this.lockUI(false);
-    this._toggleMode('home');
+    this._toggleMode(this.activeEggUid ? 'play' : 'home');
     this._closeSoundPanel();
   }
 
@@ -437,7 +552,7 @@ export class AppGame {
       await this._playStoreAnimation();
       this._moveActiveToStored();
       this._showToast('Your egg has been stored successfully.', 'success');
-      this._goHome();
+      this._selectEggTab(this.activeTabId || 'gold');
       this.lockUI(false);
       return;
     }
@@ -456,7 +571,8 @@ export class AppGame {
         }
       }
       this._showToast(`Cashed out RM${amount}.`, 'success');
-      this._goHome();
+      this._toggleMode('play');
+      this._renderPlay();
       this.lockUI(false);
       return;
     }
@@ -480,7 +596,7 @@ export class AppGame {
           }
         }
         this.lastResultText = `Won RM${winAmount}`;
-      this._setStatus(`Fortune found! +${winAmount}`, 0x8cff66, 0xe4ffd8);
+      // this._setStatus(`Fortune found! +${winAmount}`, 0x8cff66, 0xe4ffd8);
       this._flashEgg(0x9ccc65);
       this._showToast(`Fortune found! +RM${winAmount}`, 'success');
     } else {
@@ -490,7 +606,7 @@ export class AppGame {
         this._flashEgg(0xff7043);
         this._showToast('Try again later', 'error');
         if (removed) {
-          this._goHome();
+          this._selectEggTab(this.activeTabId || 'gold');
         }
       }
     } else {
@@ -558,6 +674,30 @@ export class AppGame {
     return template;
   }
 
+  _selectEggTab(tabId) {
+    this.activeTabId = tabId;
+    this._refreshEggTabs();
+
+    const boughtEgg = this.boughtEggs.find((egg) => egg.id === tabId);
+    if (boughtEgg) {
+      const baseBet = tabId === 'premium' ? 1000 : 100;
+      boughtEgg.bet = baseBet;
+      boughtEgg.tries = 0;
+      boughtEgg.lastWinAmount = 0;
+      this._enterPlay(boughtEgg, 'bought');
+      return;
+    }
+
+    const fallbackBet = tabId === 'premium' ? 1000 : 100;
+    const newEgg = this._createEggInstance({
+      id: tabId,
+      label: tabId === 'premium' ? 'Premium Egg' : 'Gold Egg',
+      bet: fallbackBet,
+    });
+    this.boughtEggs.push(newEgg);
+    this._enterPlay(newEgg, 'bought');
+  }
+
   _enterPlay(egg, source = 'bought') {
     if (!egg) return;
     this.activeEggUid = egg.uid;
@@ -598,7 +738,7 @@ export class AppGame {
       this._buildGroupedGrid(
         this.boughtEggs,
         (group) => this._enterPlay(this._pickEggFromGroup(this.boughtEggs, group), 'bought'),
-        { emptyText: 'No purchased eggs yet.' },
+        { emptyText: 'No purchased eggs yet.', horizontalOnMobile: true },
       ),
     );
 
@@ -620,6 +760,7 @@ export class AppGame {
         {
           emptyText: 'You can store up to 3 eggs for later.',
           columns: 'repeat(3, minmax(220px, 1fr))',
+          horizontalOnMobile: true,
         },
       ),
     );
@@ -635,30 +776,40 @@ export class AppGame {
     const width = this.app?.renderer?.width || 800;
     const height = this.app?.renderer?.height || 600;
     const egg = this._getActiveEgg();
+    const displayAmount = egg && typeof egg.lastWinAmount === 'number' && egg.lastWinAmount > 0
+      ? egg.lastWinAmount
+      : null;
     const pricePart =
-      egg && typeof egg.bet === 'number' && egg.bet > 0 ? ` • RM${egg.bet}` : '';
+      egg && typeof displayAmount === 'number' && displayAmount > 0 ? ` RM${displayAmount}` : '';
     const label = egg ? `${egg.label ?? egg.id ?? 'Egg'}${pricePart}` : 'No egg selected';
     this.eggLabel.text = label;
     this.eggLabel.position.set(width / 2, height * 0.70);
 
-    const tries = egg?.tries ?? 0;
-    this.triesText.text = egg ? `Tries: ${tries}` : '';
-    this.triesText.position.set(width / 2, height * 0.62);
+    this.triesText.text = '';
 
     this._drawEgg(width / 2, height * 0.38);
     this._drawCrackOverlay();
     this._updateActionButtons();
+    this._updateTabsVisibility();
+    this._positionActionButtons(width, height);
   }
 
-  _buildGroupedGrid(eggs, onCrack, { emptyText, columns } = {}) {
+  _buildGroupedGrid(eggs, onCrack, { emptyText, columns, horizontalOnMobile } = {}) {
     const grid = document.createElement('div');
+    const useHorizontal = horizontalOnMobile && (window.innerWidth || 0) < 720;
     Object.assign(grid.style, {
-      display: 'grid',
-      gridTemplateColumns: columns || 'repeat(auto-fit, minmax(220px, 1fr))',
+      display: useHorizontal ? 'flex' : 'grid',
+      gridTemplateColumns: useHorizontal ? '' : (columns || 'repeat(auto-fit, minmax(220px, 1fr))'),
       gap: '12px',
       width: '100%',
       maxWidth: '960px',
+      overflowX: useHorizontal ? 'auto' : 'visible',
+      paddingBottom: useHorizontal ? '6px' : '0',
+      scrollSnapType: useHorizontal ? 'x mandatory' : 'none',
     });
+    if (useHorizontal) {
+      grid.style.webkitOverflowScrolling = 'touch';
+    }
 
     if (!eggs.length) {
       const empty = document.createElement('div');
@@ -670,7 +821,12 @@ export class AppGame {
 
     const grouped = this._groupEggs(eggs);
     grouped.forEach((group) => {
-      grid.appendChild(this._createEggCardDom(group, { onCrack: () => onCrack(group) }));
+      const card = this._createEggCardDom(group, { onCrack: () => onCrack(group) });
+      if (useHorizontal) {
+        card.style.minWidth = '220px';
+        card.style.scrollSnapAlign = 'start';
+      }
+      grid.appendChild(card);
     });
     return grid;
   }
@@ -1255,6 +1411,14 @@ export class AppGame {
     return pool.find((egg) => egg.uid === uid) || null;
   }
 
+  _findLatestStoredById(id) {
+    if (!id) return null;
+    for (let i = this.storedEggs.length - 1; i >= 0; i -= 1) {
+      if (this.storedEggs[i].id === id) return this.storedEggs[i];
+    }
+    return null;
+  }
+
   _createEggInstance(template) {
     return {
       ...template,
@@ -1273,6 +1437,10 @@ export class AppGame {
     if (this.app?.canvas) {
       this.app.canvas.style.display = mode === 'play' ? 'block' : 'none';
     }
+    if (this.homeButtonEl) {
+      this.homeButtonEl.style.display = mode === 'play' ? 'inline-flex' : 'none';
+    }
+    this._updateTabsVisibility();
   }
 
   _updateActionButtons() {
@@ -1294,10 +1462,13 @@ export class AppGame {
     setState(this.cashoutButton, !!egg && canCashout && showSecondary);
 
     if (this.saveButton) this.saveButton.visible = !!egg && showSecondary;
-    if (this.cashoutButton) this.cashoutButton.visible = !!egg && showSecondary;
-    if (this.backButton) {
-      this.backButton.visible = !hideHome;
-      this.backButton.eventMode = !hideHome && !this.isLocked ? 'static' : disableMode;
+    if (this.cashoutButton) {
+      this.cashoutButton.visible = false;
+      this.cashoutButton.eventMode = disableMode;
+    }
+    if (this.homeButtonEl) {
+      this.homeButtonEl.style.display = !hideHome && this.mode === 'play' ? 'inline-flex' : 'none';
+      this.homeButtonEl.disabled = hideHome || this.isLocked;
     }
   }
 
@@ -1337,6 +1508,7 @@ export class AppGame {
       btn.alpha = alpha;
       btn.eventMode = mode;
     });
+    this._updateTabsVisibility();
   }
 
   resize(width, height) {
@@ -1344,26 +1516,36 @@ export class AppGame {
     const centerY = height * 0.38;
     this._drawEgg(width / 2, centerY);
 
-    this.titleText.position.set(width / 2, 18);
+    // this.titleText.position.set(width / 2, 18);
     this.statusText.position.set(width / 2, 58);
     this._refreshStatusBadge();
 
-    const actionH = this.actionButton?.height || 64;
-    const saveH = this.saveButton?.height || 64;
-    const cashoutH = this.cashoutButton?.height || 64;
-    const marginBottom = 24;
-    const actionY = Math.min(height * 0.78, height - (actionH + saveH + cashoutH + marginBottom));
-    const saveY = actionY + actionH + 12;
-    const cashoutY = saveY + saveH + 12;
-
-    const centerX = (width - this.actionButton.width) / 2;
-    this.actionButton.position.set(centerX, actionY);
-    this.saveButton.position.set(centerX + 10, saveY);
-    this.cashoutButton.position.set(centerX + 10, cashoutY);
     this.backButton.position.set(24, 24);
 
     this._renderHomeDom();
     this._renderPlay();
+  }
+
+  _positionActionButtons(width, height) {
+    if (!this.actionButton) return;
+    const gap = 12;
+    const actionH = this.actionButton.height || 64;
+    const marginBottom = 24;
+    const rowY = Math.min(height * 0.78, height - actionH - marginBottom);
+
+    const leftBtn = this.actionButton.visible !== false ? this.actionButton : null;
+    const rightBtn = this.saveButton && this.saveButton.visible !== false ? this.saveButton : null;
+
+    if (leftBtn && rightBtn) {
+      const totalWidth = leftBtn.width + rightBtn.width + gap;
+      const startX = (width - totalWidth) / 2;
+      leftBtn.position.set(startX, rowY);
+      rightBtn.position.set(startX + leftBtn.width + gap, rowY);
+    } else if (leftBtn) {
+      leftBtn.position.set((width - leftBtn.width) / 2, rowY);
+    } else if (rightBtn) {
+      rightBtn.position.set((width - rightBtn.width) / 2, rowY);
+    }
   }
   // endregion helpers / state ---------------------------------------------------
 }
