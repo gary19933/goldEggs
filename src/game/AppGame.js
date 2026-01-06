@@ -45,6 +45,7 @@ export class AppGame {
     this._statusBgColor = 0xfff7cf;
     this._statusTextColor = 0xffeb3b;
     this._activeAnim = null;
+    this._storedBarTop = null;
 
     this.root = new Container();
     this.app.stage.addChild(this.root);
@@ -61,6 +62,7 @@ export class AppGame {
     this._setupControlsBar();
     this._setupModalShell();
     this._setupEggTabs();
+    this._setupStoredBar();
 
     this.backdrop = new Graphics();
     this.root.addChild(this.backdrop);
@@ -120,7 +122,7 @@ export class AppGame {
     this.triesText.anchor.set(0.5, 0.5);
     this.playContainer.addChild(this.triesText);
 
-    this.actionButton = this._createButton('Crack the egg', () => {
+    this.actionButton = this._createButton('Crack Egg', () => {
       if (this.isLocked) return;
       this._handleCrack();
     });
@@ -129,7 +131,7 @@ export class AppGame {
     this.saveButton = this._createButton('Keep', () => {
       if (this.isLocked) return;
       this._handleStoreActive();
-    }, { width: 180, height: 54, color: 0x7c3e00 });
+    }, { width: 220, height: 64, color: 0x7c3e00 });
     this.playContainer.addChild(this.saveButton);
 
     this.cashoutButton = this._createButton('Cashout', () => {
@@ -376,6 +378,84 @@ export class AppGame {
     this.tabsRoot = tabs;
     this.tabButtons = { gold: goldTab, premium: premiumTab };
     this._refreshEggTabs();
+  }
+
+  _setupStoredBar() {
+    if (!this.containerEl) return;
+    if (this.storedBarRoot) return;
+
+    const bar = document.createElement('div');
+    bar.id = 'stored-bar';
+    Object.assign(bar.style, {
+      position: 'absolute',
+      left: '50%',
+      bottom: '18px',
+      transform: 'translateX(-50%)',
+      display: 'none',
+      gap: '12px',
+      padding: '10px 12px',
+      background: 'rgba(20,8,8,0.85)',
+      border: '1px solid rgba(255, 213, 79, 0.35)',
+      borderRadius: '14px',
+      zIndex: '9',
+    });
+
+    const slots = [];
+    for (let i = 0; i < 3; i += 1) {
+      const slot = document.createElement('div');
+      Object.assign(slot.style, {
+        width: '150px',
+        minHeight: '54px',
+        borderRadius: '12px',
+        border: '1px dashed rgba(255, 213, 79, 0.4)',
+        color: '#ffe082',
+        fontWeight: '700',
+        fontSize: '13px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '6px 8px',
+        textAlign: 'center',
+        background: 'rgba(45,13,13,0.7)',
+      });
+      bar.appendChild(slot);
+      slots.push(slot);
+    }
+
+    this.containerEl.appendChild(bar);
+    this.storedBarRoot = bar;
+    this.storedSlots = slots;
+    this._renderStoredBar();
+  }
+
+  _renderStoredBar() {
+    if (!this.storedSlots) return;
+    const eggs = this.storedEggs.slice(0, 3);
+    this.storedSlots.forEach((slot, index) => {
+      const egg = eggs[index];
+      if (!egg) {
+        slot.textContent = 'Empty';
+        slot.style.borderStyle = 'dashed';
+        slot.style.cursor = 'default';
+        slot.onclick = null;
+        return;
+      }
+      const amount = typeof egg.lastWinAmount === 'number' && egg.lastWinAmount > 0
+        ? egg.lastWinAmount
+        : egg.bet;
+      slot.textContent = `${egg.label ?? egg.id ?? 'Egg'} RM${amount ?? 0}`;
+      slot.style.borderStyle = 'solid';
+      slot.style.cursor = 'pointer';
+      slot.onclick = () => {
+        if (this.isLocked) return;
+        this._removeEggFromArray(this.storedEggs, egg.uid);
+        if (!this.boughtEggs.some((item) => item.uid === egg.uid)) {
+          this.boughtEggs.push(egg);
+        }
+        this._renderStoredBar();
+        this._enterPlay(egg, 'bought');
+      };
+    });
   }
 
   _refreshEggTabs() {
@@ -787,10 +867,11 @@ export class AppGame {
 
     this.triesText.text = '';
 
-    this._drawEgg(width / 2, height * 0.38);
+    this._drawEgg(width / 2, height * 0.45);
     this._drawCrackOverlay();
     this._updateActionButtons();
     this._updateTabsVisibility();
+    this._renderStoredBar();
     this._positionActionButtons(width, height);
   }
 
@@ -1440,6 +1521,9 @@ export class AppGame {
     if (this.homeButtonEl) {
       this.homeButtonEl.style.display = mode === 'play' ? 'inline-flex' : 'none';
     }
+    if (this.storedBarRoot) {
+      this.storedBarRoot.style.display = mode === 'play' ? 'flex' : 'none';
+    }
     this._updateTabsVisibility();
   }
 
@@ -1521,6 +1605,7 @@ export class AppGame {
     this._refreshStatusBadge();
 
     this.backButton.position.set(24, 24);
+    this._storedBarTop = null;
 
     this._renderHomeDom();
     this._renderPlay();
@@ -1531,7 +1616,9 @@ export class AppGame {
     const gap = 12;
     const actionH = this.actionButton.height || 64;
     const marginBottom = 24;
-    const rowY = Math.min(height * 0.78, height - actionH - marginBottom);
+    const rowYOffset = 20;
+    const baseRowY = Math.min(height * 0.82, height - actionH - marginBottom);
+    const rowY = baseRowY + rowYOffset;
 
     const leftBtn = this.actionButton.visible !== false ? this.actionButton : null;
     const rightBtn = this.saveButton && this.saveButton.visible !== false ? this.saveButton : null;
@@ -1546,6 +1633,22 @@ export class AppGame {
     } else if (rightBtn) {
       rightBtn.position.set((width - rightBtn.width) / 2, rowY);
     }
+
+    const crackButton = leftBtn || rightBtn;
+    if (crackButton) {
+      this._positionStoredBar(crackButton.position.y);
+    }
+  }
+
+  _positionStoredBar(crackButtonY) {
+    if (!this.storedBarRoot) return;
+    if (this._storedBarTop === null) {
+      const barHeight = this.storedBarRoot.offsetHeight || 60;
+      const gap = 28;
+      this._storedBarTop = Math.max(16, crackButtonY - barHeight - gap);
+    }
+    this.storedBarRoot.style.top = `${this._storedBarTop}px`;
+    this.storedBarRoot.style.bottom = 'auto';
   }
   // endregion helpers / state ---------------------------------------------------
 }
