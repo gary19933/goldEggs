@@ -37,6 +37,8 @@ export class AppGame {
     this.isLocked = false;
     this.isCracked = false;
     this.lastResultText = '';
+    this.lastBonus = false;
+    this.history = [];
     this.cashoutHistory = [];
     this.activeTabId = 'gold';
     this.previousTabId = null;
@@ -45,6 +47,7 @@ export class AppGame {
     this._statusBgColor = 0xfff7cf;
     this._statusTextColor = 0xffeb3b;
     this._activeAnim = null;
+    this._bonusAnim = null;
     this._storedBarTop = null;
 
     this.root = new Container();
@@ -122,17 +125,29 @@ export class AppGame {
     this.triesText.anchor.set(0.5, 0.5);
     this.playContainer.addChild(this.triesText);
 
+    this.bonusText = new Text('x2', {
+      fontFamily: 'Segoe UI, Arial, sans-serif',
+      fontSize: 22,
+      fontWeight: '900',
+      fill: 0xfff176,
+      stroke: '#5a2a0a',
+      strokeThickness: 3,
+    });
+    this.bonusText.anchor.set(0.5, 0.5);
+    this.bonusText.visible = false;
+    this.playContainer.addChild(this.bonusText);
+
     this.actionButton = this._createButton('Crack Egg', () => {
       if (this.isLocked) return;
       this._handleCrack();
     });
     this.playContainer.addChild(this.actionButton);
 
-    this.saveButton = this._createButton('Keep', () => {
+    this.buyButton = this._createButton('Buy Egg', () => {
       if (this.isLocked) return;
-      this._handleStoreActive();
-    }, { width: 220, height: 64, color: 0x7c3e00 });
-    this.playContainer.addChild(this.saveButton);
+      this._handleBuy();
+    }, { width: 240, height: 64, color: 0x6d4c41 });
+    this.playContainer.addChild(this.buyButton);
 
     this.cashoutButton = this._createButton('Cashout', () => {
       if (this.isLocked) return;
@@ -250,8 +265,8 @@ export class AppGame {
     const infoBtn = makeBtn('Info');
     infoBtn.onclick = () => this._showInfoModal();
 
-    const rewardsBtn = makeBtn('Rewards');
-    rewardsBtn.onclick = () => this._showRewardsModal();
+    const rewardsBtn = makeBtn('History');
+    rewardsBtn.onclick = () => this._showHistoryModal();
 
     const soundBtn = makeBtn('Sound');
     soundBtn.onclick = () => this._toggleSoundPanel();
@@ -388,8 +403,8 @@ export class AppGame {
     bar.id = 'stored-bar';
     Object.assign(bar.style, {
       position: 'absolute',
+      top: '150px',
       left: '50%',
-      bottom: '18px',
       transform: 'translateX(-50%)',
       display: 'none',
       gap: '12px',
@@ -398,6 +413,7 @@ export class AppGame {
       border: '1px solid rgba(255, 213, 79, 0.35)',
       borderRadius: '14px',
       zIndex: '9',
+      width: 'fit-content',
     });
 
     const slots = [];
@@ -412,6 +428,7 @@ export class AppGame {
         fontWeight: '700',
         fontSize: '13px',
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '6px 8px',
@@ -433,35 +450,54 @@ export class AppGame {
     const eggs = this.storedEggs.slice(0, 3);
     this.storedSlots.forEach((slot, index) => {
       const egg = eggs[index];
+      slot.innerHTML = '';
       if (!egg) {
-        slot.textContent = 'Empty';
+        const empty = document.createElement('div');
+        empty.textContent = 'Empty';
+        slot.appendChild(empty);
         slot.style.borderStyle = 'dashed';
         slot.style.cursor = 'default';
         slot.onclick = null;
         return;
       }
-      const amount = typeof egg.lastWinAmount === 'number' && egg.lastWinAmount > 0
-        ? egg.lastWinAmount
-        : egg.bet;
-      slot.textContent = `${egg.label ?? egg.id ?? 'Egg'} RM${amount ?? 0}`;
+      const label = document.createElement('div');
+      const hasWon = (egg.tries ?? 0) > 0 && typeof egg.lastWinAmount === 'number' && egg.lastWinAmount > 0;
+      label.textContent = hasWon
+        ? `${egg.label ?? egg.id ?? 'Egg'} RM${egg.lastWinAmount}`
+        : `${egg.label ?? egg.id ?? 'Egg'}`;
+      label.style.marginBottom = '6px';
+
+      slot.appendChild(label);
+      if (egg.uid !== this.activeEggUid) {
+        const btn = document.createElement('button');
+        btn.textContent = 'Retrieve';
+        Object.assign(btn.style, {
+          padding: '4px 8px',
+          background: '#5d4037',
+          color: '#ffe082',
+          border: 'none',
+          borderRadius: '8px',
+          fontWeight: '700',
+          fontSize: '11px',
+          cursor: 'pointer',
+        });
+        btn.onclick = () => {
+          if (this.isLocked) return;
+          this._retrieveStoredEgg(egg);
+        };
+        slot.appendChild(btn);
+      }
       slot.style.borderStyle = 'solid';
-      slot.style.cursor = 'pointer';
-      slot.onclick = () => {
-        if (this.isLocked) return;
-        this._removeEggFromArray(this.storedEggs, egg.uid);
-        if (!this.boughtEggs.some((item) => item.uid === egg.uid)) {
-          this.boughtEggs.push(egg);
-        }
-        this._renderStoredBar();
-        this._enterPlay(egg, 'bought');
-      };
+      slot.style.cursor = 'default';
+      slot.onclick = null;
     });
   }
 
   _refreshEggTabs() {
     if (!this.tabButtons) return;
+    const hasActiveEgg = Boolean(this.activeEggUid);
     Object.entries(this.tabButtons).forEach(([id, btn]) => {
-      const active = id === this.activeTabId;
+      const active = !hasActiveEgg && id === this.activeTabId;
       btn.style.borderColor = active ? '#ffd54f' : 'transparent';
       btn.style.background = active ? 'rgba(90,40,10,0.95)' : 'rgba(45,13,13,0.9)';
       btn.style.color = active ? '#fff0b3' : '#ffd54f';
@@ -470,8 +506,7 @@ export class AppGame {
 
   _updateTabsVisibility() {
     if (!this.tabsRoot) return;
-    const egg = this._getActiveEgg();
-    const shouldHide = this.isLocked || (egg && (egg.tries ?? 0) > 0);
+    const shouldHide = this.isLocked;
     this.tabsRoot.style.display = this.mode === 'play' && !shouldHide ? 'flex' : 'none';
   }
 
@@ -589,11 +624,9 @@ export class AppGame {
   }
 
   _initTabEggs() {
-    const gold = this._createEggInstance({ id: 'gold', label: 'Gold Egg', bet: 100 });
-    const premium = this._createEggInstance({ id: 'premium', label: 'Premium Egg', bet: 1000 });
-    this.boughtEggs = [gold, premium];
+    this.boughtEggs = [];
     this.activeTabId = 'gold';
-    this.activeEggUid = gold.uid;
+    this.activeEggUid = null;
     this.activeSource = 'bought';
     this._refreshEggTabs();
   }
@@ -616,12 +649,12 @@ export class AppGame {
 
   ready() {
     this.lockUI(false);
-    this._toggleMode(this.activeEggUid ? 'play' : 'home');
+    this._toggleMode('play');
     this._closeSoundPanel();
   }
 
   async showResult(result = {}) {
-    const { result: outcome, winAmount = 0, balance, eggId } = result;
+    const { result: outcome, winAmount = 0, balance, eggId, bonus } = result;
     if (balance !== undefined) {
       this.updateBalance(balance);
     }
@@ -629,6 +662,7 @@ export class AppGame {
     const egg = eggId ? this._findEggByUid(eggId, this.activeSource) : this._getActiveEgg();
 
     if (outcome === 'stored') {
+      this.lastBonus = false;
       await this._playStoreAnimation();
       this._moveActiveToStored();
       this._showToast('Your egg has been stored successfully.', 'success');
@@ -638,6 +672,7 @@ export class AppGame {
     }
 
     if (outcome === 'cashout') {
+      this.lastBonus = false;
       this._removeActiveEgg();
       const amount = egg?.lastWinAmount ?? 0;
       if (egg) {
@@ -650,6 +685,7 @@ export class AppGame {
           this.cashoutHistory.length = 20;
         }
       }
+      this._recordHistory(2, egg, { winAmount: amount });
       this._showToast(`Cashed out RM${amount}.`, 'success');
       this._toggleMode('play');
       this._renderPlay();
@@ -659,6 +695,7 @@ export class AppGame {
 
     if (outcome === 'win' || outcome === 'lose') {
       this.isCracked = true;
+      this.lastBonus = outcome === 'win' ? Boolean(bonus) : false;
       this._drawCrackOverlay();
       await this._playBreakAnimation();
 
@@ -676,12 +713,15 @@ export class AppGame {
           }
         }
         this.lastResultText = `Won RM${winAmount}`;
+        this._recordHistory(1, egg, { winAmount });
       // this._setStatus(`Fortune found! +${winAmount}`, 0x8cff66, 0xe4ffd8);
       this._flashEgg(0x9ccc65);
       this._showToast(`Fortune found! +RM${winAmount}`, 'success');
     } else {
       const removed = this._removeActiveEgg();
+      this.lastBonus = false;
       this.lastResultText = 'Try again later';
+        this._recordHistory(0, egg);
         this._setStatus('', 0xffccbc, 0x2d0d0d);
         this._flashEgg(0xff7043);
         this._showToast('Try again later', 'error');
@@ -690,6 +730,7 @@ export class AppGame {
         }
       }
     } else {
+      this.lastBonus = false;
       this._setStatus('Action completed.', 0xffeb3b, 0xfff7cf);
     }
 
@@ -715,25 +756,6 @@ export class AppGame {
     });
   }
 
-  _handleStoreActive() {
-    const egg = this._getActiveEgg();
-    if (!egg) {
-      this._showToast('Select an egg first.', 'info');
-      return;
-    }
-    if (this.storedEggs.length >= this.maxStored) {
-      this._showToast(`Storage is full (${this.maxStored}/ ${this.maxStored}).`, 'error');
-      return;
-    }
-    this.lockUI(true);
-    this.onAction?.({
-      action: 'store',
-      betAmount: egg.bet,
-      eggId: egg.uid,
-      tryIndex: egg.tries ?? 0,
-    });
-  }
-
   _handleCashout() {
     const egg = this._getActiveEgg();
     if (!egg) {
@@ -749,33 +771,61 @@ export class AppGame {
     });
   }
 
+  _handleBuy() {
+    if (this.activeEggUid) return;
+    if (this.storedEggs.length >= this.maxStored) {
+      this._showToast(`Storage is full (${this.maxStored}/${this.maxStored}).`, 'error');
+      return;
+    }
+    const template = this._getSelectedEggTemplate();
+    const newEgg = this._createEggInstance(template);
+    this.boughtEggs.push(newEgg);
+    this.storedEggs.push(newEgg);
+    this._renderStoredBar();
+    this._enterPlay(newEgg, 'stored');
+  }
+
+  _retrieveStoredEgg(egg) {
+    if (!egg) return;
+    const current = this._getActiveEgg();
+    if (current && current.uid === egg.uid) {
+      return;
+    }
+    this._enterPlay(egg, 'stored');
+  }
+
   async _purchaseEgg(template) {
     // Purchases happen outside; this path is unused.
     return template;
   }
 
+  _getSelectedEggTemplate() {
+    if (this.activeTabId === 'premium') {
+      return { id: 'premium', label: 'Premium Egg', bet: 1000 };
+    }
+    return { id: 'gold', label: 'Gold Egg', bet: 100 };
+  }
+
   _selectEggTab(tabId) {
+    const current = this._getActiveEgg();
+    if (current) {
+      const alreadyStored = this.storedEggs.some((item) => item.uid === current.uid);
+      if (!alreadyStored && this.storedEggs.length >= this.maxStored) {
+        this._showToast(`Storage is full (${this.maxStored}/${this.maxStored}).`, 'error');
+        return;
+      }
+      if (!alreadyStored) {
+        this.storedEggs.push(current);
+      }
+      this.activeEggUid = null;
+      this.isCracked = false;
+      this.lastResultText = '';
+      this._renderStoredBar();
+    }
     this.activeTabId = tabId;
     this._refreshEggTabs();
-
-    const boughtEgg = this.boughtEggs.find((egg) => egg.id === tabId);
-    if (boughtEgg) {
-      const baseBet = tabId === 'premium' ? 1000 : 100;
-      boughtEgg.bet = baseBet;
-      boughtEgg.tries = 0;
-      boughtEgg.lastWinAmount = 0;
-      this._enterPlay(boughtEgg, 'bought');
-      return;
-    }
-
-    const fallbackBet = tabId === 'premium' ? 1000 : 100;
-    const newEgg = this._createEggInstance({
-      id: tabId,
-      label: tabId === 'premium' ? 'Premium Egg' : 'Gold Egg',
-      bet: fallbackBet,
-    });
-    this.boughtEggs.push(newEgg);
-    this._enterPlay(newEgg, 'bought');
+    this._updateBuyButtonLabel();
+    this._renderPlay();
   }
 
   _enterPlay(egg, source = 'bought') {
@@ -856,23 +906,59 @@ export class AppGame {
     const width = this.app?.renderer?.width || 800;
     const height = this.app?.renderer?.height || 600;
     const egg = this._getActiveEgg();
+    const hasEgg = Boolean(egg);
     const displayAmount = egg && typeof egg.lastWinAmount === 'number' && egg.lastWinAmount > 0
       ? egg.lastWinAmount
       : null;
     const pricePart =
       egg && typeof displayAmount === 'number' && displayAmount > 0 ? ` RM${displayAmount}` : '';
-    const label = egg ? `${egg.label ?? egg.id ?? 'Egg'}${pricePart}` : 'No egg selected';
+    const label = egg ? `${egg.label ?? egg.id ?? 'Egg'}${pricePart}` : '';
     this.eggLabel.text = label;
-    this.eggLabel.position.set(width / 2, height * 0.70);
+    this.eggLabel.position.set(width / 2, height * 0.8);
 
     this.triesText.text = '';
 
-    this._drawEgg(width / 2, height * 0.45);
+    if (!hasEgg) {
+      this.isCracked = false;
+      this.lastBonus = false;
+    }
+    this._drawEgg(width / 2, height * 0.55);
     this._drawCrackOverlay();
+    this.egg.visible = hasEgg;
+    this.eggLabel.visible = hasEgg;
+    this.crackOverlay.visible = hasEgg && this.isCracked;
+    if (this.eggCenter && this.bonusText) {
+      this.bonusText.position.set(
+        this.eggCenter.x + this.eggCenter.width * 0.5,
+        this.eggCenter.y - this.eggCenter.height * 0.46,
+      );
+      this.bonusText.visible = hasEgg && this.lastBonus;
+      if (this.lastBonus && hasEgg) {
+        this._startBonusBounce();
+      } else {
+        this._stopBonusBounce();
+      }
+    }
+    if (this.buyButton) {
+      this._updateBuyButtonLabel();
+      this.buyButton.visible = !hasEgg;
+      this.buyButton.position.set(
+        width / 2 - this.buyButton.width / 2,
+        height / 2 - this.buyButton.height / 2,
+      );
+    }
     this._updateActionButtons();
     this._updateTabsVisibility();
     this._renderStoredBar();
     this._positionActionButtons(width, height);
+  }
+
+  _updateBuyButtonLabel() {
+    if (!this.buyButton || !this.buyButton._labelText) return;
+    const template = this._getSelectedEggTemplate();
+    const amount = template.bet ?? 0;
+    this.buyButton._labelText.text = `Buy ${template.label} RM${amount}`;
+    this.buyButton._labelText.position.set(this.buyButton.width / 2, this.buyButton.height / 2);
   }
 
   _buildGroupedGrid(eggs, onCrack, { emptyText, columns, horizontalOnMobile } = {}) {
@@ -1070,12 +1156,12 @@ export class AppGame {
     );
   }
 
-  _showRewardsModal() {
-    if (!this.cashoutHistory.length) {
-      this._showModal('Rewards', 'No cashouts yet.');
+  _showHistoryModal() {
+    if (!this.history.length) {
+      this._showModal('History', 'No game history yet.');
       return;
     }
-    this._showModal('Rewards', '');
+    this._showModal('History', '');
     this.modalBody.style.display = 'flex';
     this.modalBody.style.flexDirection = 'column';
     this.modalBody.style.gap = '10px';
@@ -1083,7 +1169,13 @@ export class AppGame {
     this.modalBody.style.overflowY = 'auto';
     this.modalBody.style.paddingRight = '6px';
 
-    this.cashoutHistory.forEach((entry, index) => {
+    const statusLabel = (value) => {
+      if (value === 1) return 'Success';
+      if (value === 2) return 'Redeemed';
+      return 'Failed';
+    };
+
+    this.history.forEach((entry, index) => {
       const when = entry.time instanceof Date
         ? entry.time.toLocaleString()
         : String(entry.time || '');
@@ -1100,14 +1192,14 @@ export class AppGame {
       });
 
       const left = document.createElement('div');
-      left.textContent = `${index + 1}. ${entry.label}`;
+      left.textContent = `${index + 1}. ${entry.eggType ?? 'Egg'} (${statusLabel(entry.status)}:${entry.status})`;
       Object.assign(left.style, {
         fontWeight: '700',
         color: '#ffe082',
       });
 
       const right = document.createElement('div');
-      right.textContent = `RM${entry.amount}`;
+      right.textContent = entry.winAmount ? `RM${entry.winAmount}` : '-';
       Object.assign(right.style, {
         fontWeight: '800',
         color: '#ffd54f',
@@ -1158,6 +1250,7 @@ export class AppGame {
     container.eventMode = 'static';
     container.cursor = 'pointer';
     container.on('pointertap', onPress);
+    container._labelText = text;
 
     container.width = width;
     container.height = height;
@@ -1251,6 +1344,31 @@ export class AppGame {
     };
 
     this.app.ticker.add(tick);
+  }
+
+  _startBonusBounce() {
+    if (!this.bonusText || this._bonusAnim) return;
+    this.bonusText.scale.set(1);
+    let frame = 0;
+    const duration = 100;
+    const tick = () => {
+      frame = (frame + 1) % duration;
+      const t = frame / duration;
+      const scale = 1 + 0.2 * Math.sin(t * Math.PI * 2);
+      this.bonusText.scale.set(scale);
+    };
+    this._bonusAnim = () => {
+      this.app.ticker.remove(tick);
+      this.bonusText.scale.set(1);
+      this._bonusAnim = null;
+    };
+    this.app.ticker.add(tick);
+  }
+
+  _stopBonusBounce() {
+    if (this._bonusAnim) {
+      this._bonusAnim();
+    }
   }
 
   _setStatus(message, textColor, bgColor) {
@@ -1482,6 +1600,20 @@ export class AppGame {
   // endregion utils / visuals ---------------------------------------------------
 
   // region helpers / state ------------------------------------------------------
+  _recordHistory(status, egg, extra = {}) {
+    this.history.unshift({
+      status,
+      eggId: egg?.uid ?? null,
+      eggType: egg?.id ?? null,
+      betAmount: egg?.bet ?? null,
+      time: new Date(),
+      ...extra,
+    });
+  }
+
+  getHistory() {
+    return this.history.slice();
+  }
   _getActiveEgg() {
     return this._findEggByUid(this.activeEggUid, this.activeSource);
   }
@@ -1531,7 +1663,6 @@ export class AppGame {
     const egg = this._getActiveEgg();
     const tries = egg?.tries ?? 0;
     const canCashout = tries > 0;
-    const showSecondary = tries > 0;
     const hideHome = tries > 0;
     const disableAlpha = 0.5;
     const disableMode = 'none';
@@ -1542,10 +1673,9 @@ export class AppGame {
     };
 
     setState(this.actionButton, !!egg);
-    setState(this.saveButton, !!egg && showSecondary);
-    setState(this.cashoutButton, !!egg && canCashout && showSecondary);
+    setState(this.cashoutButton, !!egg && canCashout);
 
-    if (this.saveButton) this.saveButton.visible = !!egg && showSecondary;
+    if (this.actionButton) this.actionButton.visible = !!egg;
     if (this.cashoutButton) {
       this.cashoutButton.visible = false;
       this.cashoutButton.eventMode = disableMode;
@@ -1587,7 +1717,7 @@ export class AppGame {
     this.isLocked = isLocked;
     const alpha = isLocked ? 0.6 : 1;
     const mode = isLocked ? 'none' : 'static';
-    [this.actionButton, this.saveButton, this.cashoutButton, this.backButton].forEach((btn) => {
+    [this.actionButton, this.cashoutButton, this.buyButton, this.backButton].forEach((btn) => {
       if (!btn) return;
       btn.alpha = alpha;
       btn.eventMode = mode;
@@ -1621,7 +1751,7 @@ export class AppGame {
     const rowY = baseRowY + rowYOffset;
 
     const leftBtn = this.actionButton.visible !== false ? this.actionButton : null;
-    const rightBtn = this.saveButton && this.saveButton.visible !== false ? this.saveButton : null;
+    const rightBtn = null;
 
     if (leftBtn && rightBtn) {
       const totalWidth = leftBtn.width + rightBtn.width + gap;
@@ -1642,13 +1772,6 @@ export class AppGame {
 
   _positionStoredBar(crackButtonY) {
     if (!this.storedBarRoot) return;
-    if (this._storedBarTop === null) {
-      const barHeight = this.storedBarRoot.offsetHeight || 60;
-      const gap = 28;
-      this._storedBarTop = Math.max(16, crackButtonY - barHeight - gap);
-    }
-    this.storedBarRoot.style.top = `${this._storedBarTop}px`;
-    this.storedBarRoot.style.bottom = 'auto';
   }
   // endregion helpers / state ---------------------------------------------------
 }
