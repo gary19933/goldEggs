@@ -1,4 +1,4 @@
-import { Container, Graphics, Text } from 'pixi.js';
+import { Assets, Container, Graphics, Sprite, Text } from 'pixi.js';
 import Swal from 'sweetalert2';
 import 'sweetalert2/dist/sweetalert2.min.css';
 
@@ -48,6 +48,7 @@ export class AppGame {
     this._statusTextColor = 0xffeb3b;
     this._activeAnim = null;
     this._bonusAnim = null;
+    this._isKnocking = false;
     this._storedBarTop = null;
 
     this.root = new Container();
@@ -107,6 +108,11 @@ export class AppGame {
     this.playContainer.addChild(this.egg);
     this.playContainer.addChild(this.crackOverlay);
 
+    this.eggSpriteContainer = new Container();
+    this.playContainer.addChild(this.eggSpriteContainer);
+    this.fullEggSprite = null;
+    this.brokenEggSprite = null;
+
     this.eggLabel = new Text('', {
       fontFamily: 'Segoe UI, Arial, sans-serif',
       fontSize: 18,
@@ -165,6 +171,7 @@ export class AppGame {
     this._toggleMode('home');
     this._refreshStatusBadge();
     this._drawEgg(renderer.width / 2, renderer.height * 0.4);
+    this._loadEggSprites();
   }
 
   _setupHomeDom() {
@@ -549,6 +556,31 @@ export class AppGame {
       color: '#ffd54f',
     });
 
+    const headerRow = document.createElement('div');
+    Object.assign(headerRow.style, {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '12px',
+    });
+
+    const closeX = document.createElement('button');
+    closeX.textContent = 'X';
+    Object.assign(closeX.style, {
+      width: '32px',
+      height: '32px',
+      background: 'rgba(93, 64, 55, 0.8)',
+      color: '#ffe082',
+      border: '1px solid rgba(255, 213, 79, 0.4)',
+      borderRadius: '8px',
+      fontWeight: '800',
+      cursor: 'pointer',
+    });
+    closeX.onclick = () => this._closeModal();
+
+    headerRow.appendChild(title);
+    headerRow.appendChild(closeX);
+
     const body = document.createElement('div');
     Object.assign(body.style, {
       fontSize: '15px',
@@ -579,7 +611,7 @@ export class AppGame {
     closeBtn.onclick = () => this._closeModal();
 
     closeRow.appendChild(closeBtn);
-    panel.appendChild(title);
+    panel.appendChild(headerRow);
     panel.appendChild(body);
     panel.appendChild(closeRow);
     overlay.appendChild(panel);
@@ -741,13 +773,14 @@ export class AppGame {
   }
 
   // region actions --------------------------------------------------------------
-  _handleCrack() {
+  async _handleCrack() {
     const egg = this._getActiveEgg();
     if (!egg || !this.onAction) {
       this._showToast('Select an egg first.', 'info');
       return;
     }
     this.lockUI(true);
+    await this._knockAnim();
     this.onAction({
       action: 'crack',
       betAmount: egg.bet,
@@ -927,6 +960,9 @@ export class AppGame {
     this.egg.visible = hasEgg;
     this.eggLabel.visible = hasEgg;
     this.crackOverlay.visible = hasEgg && this.isCracked;
+    if (this.eggSpriteContainer) {
+      this.eggSpriteContainer.visible = hasEgg;
+    }
     if (this.eggCenter && this.bonusText) {
       this.bonusText.position.set(
         this.eggCenter.x + this.eggCenter.width * 0.5,
@@ -1168,11 +1204,31 @@ export class AppGame {
     this.modalBody.style.maxHeight = '240px';
     this.modalBody.style.overflowY = 'auto';
     this.modalBody.style.paddingRight = '6px';
+    this.modalBody.style.scrollbarWidth = 'thin';
+    this.modalBody.style.scrollbarColor = 'rgba(255, 213, 79, 0.6) rgba(20, 8, 8, 0.4)';
+    this.modalBody.classList.add('history-body');
+
+    if (!document.getElementById('history-scrollbar-style')) {
+      const style = document.createElement('style');
+      style.id = 'history-scrollbar-style';
+      style.textContent = `
+        #game-modal .history-body::-webkit-scrollbar { width: 6px; }
+        #game-modal .history-body::-webkit-scrollbar-track { background: rgba(20, 8, 8, 0.4); border-radius: 6px; }
+        #game-modal .history-body::-webkit-scrollbar-thumb { background: rgba(255, 213, 79, 0.6); border-radius: 6px; }
+        #game-modal .history-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 213, 79, 0.8); }
+      `;
+      document.head.appendChild(style);
+    }
 
     const statusLabel = (value) => {
       if (value === 1) return 'Success';
       if (value === 2) return 'Redeemed';
       return 'Failed';
+    };
+    const statusStyle = (value) => {
+      if (value === 1) return { bg: 'rgba(102, 187, 106, 0.2)', color: '#b9f6ca' };
+      if (value === 2) return { bg: 'rgba(255, 213, 79, 0.2)', color: '#ffe082' };
+      return { bg: 'rgba(239, 83, 80, 0.2)', color: '#ffccbc' };
     };
 
     this.history.forEach((entry, index) => {
@@ -1192,11 +1248,34 @@ export class AppGame {
       });
 
       const left = document.createElement('div');
-      left.textContent = `${index + 1}. ${entry.eggType ?? 'Egg'} (${statusLabel(entry.status)}:${entry.status})`;
       Object.assign(left.style, {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
         fontWeight: '700',
         color: '#ffe082',
+        flexWrap: 'wrap',
       });
+
+      const title = document.createElement('div');
+      title.textContent = `${index + 1}. ${entry.eggType ?? 'Egg'}`;
+
+      const status = document.createElement('div');
+      const statusToken = statusStyle(entry.status);
+      status.textContent = statusLabel(entry.status);
+      Object.assign(status.style, {
+        padding: '2px 8px',
+        borderRadius: '999px',
+        fontSize: '11px',
+        letterSpacing: '0.3px',
+        textTransform: 'uppercase',
+        background: statusToken.bg,
+        color: statusToken.color,
+        border: '1px solid rgba(255, 213, 79, 0.2)',
+      });
+
+      left.appendChild(title);
+      left.appendChild(status);
 
       const right = document.createElement('div');
       right.textContent = entry.winAmount ? `RM${entry.winAmount}` : '-';
@@ -1271,23 +1350,27 @@ export class AppGame {
   }
 
   _drawEgg(centerX, centerY) {
-    const eggWidth = 220;
-    const eggHeight = 300;
+    const eggWidth = 400;
+    const eggHeight = 400;
 
     this.eggCenter = { x: centerX, y: centerY, width: eggWidth, height: eggHeight };
 
     this.egg.clear();
-    this.egg.beginFill(0xd4af37);
-    this.egg.drawEllipse(centerX, centerY, eggWidth / 2, eggHeight / 2);
-    this.egg.endFill();
+    if (!this.fullEggSprite || !this.brokenEggSprite) {
+      this.egg.beginFill(0xd4af37);
+      this.egg.drawEllipse(centerX, centerY, eggWidth / 2, eggHeight / 2);
+      this.egg.endFill();
 
-    this.egg.lineStyle(6, 0xf9e1a3);
-    this.egg.drawEllipse(centerX, centerY, (eggWidth / 2) * 0.85, (eggHeight / 2) * 0.9);
-    this.egg.lineStyle();
+      this.egg.lineStyle(6, 0xf9e1a3);
+      this.egg.drawEllipse(centerX, centerY, (eggWidth / 2) * 0.85, (eggHeight / 2) * 0.9);
+      this.egg.lineStyle();
 
-    this.egg.beginFill(0xfff8e1, 0.8);
-    this.egg.drawEllipse(centerX + eggWidth * 0.15, centerY - eggHeight * 0.2, eggWidth * 0.2, eggHeight * 0.15);
-    this.egg.endFill();
+      this.egg.beginFill(0xfff8e1, 0.8);
+      this.egg.drawEllipse(centerX + eggWidth * 0.15, centerY - eggHeight * 0.2, eggWidth * 0.2, eggHeight * 0.15);
+      this.egg.endFill();
+    }
+    this.egg.visible = !this.fullEggSprite || !this.brokenEggSprite;
+    this._syncEggSprites();
 
     this._drawCrackOverlay();
   }
@@ -1295,31 +1378,6 @@ export class AppGame {
   _drawCrackOverlay() {
     this.crackOverlay.clear();
     if (!this.isCracked || !this.eggCenter) return;
-
-    const { x, y, width, height } = this.eggCenter;
-    const crackColor = 0x4c1a1a;
-    this.crackOverlay.lineStyle(6, crackColor, 1);
-
-    const boltPoints = [
-      [x, y - height * 0.35],
-      [x - width * 0.1, y - height * 0.08],
-      [x + width * 0.12, y - height * 0.02],
-      [x - width * 0.08, y + height * 0.18],
-      [x + width * 0.06, y + height * 0.32],
-    ];
-    this.crackOverlay.moveTo(boltPoints[0][0], boltPoints[0][1]);
-    for (let i = 1; i < boltPoints.length; i += 1) {
-      this.crackOverlay.lineTo(boltPoints[i][0], boltPoints[i][1]);
-    }
-
-    this.crackOverlay.beginFill(0x2d0d0d, 0.25);
-    this.crackOverlay.drawPolygon([
-      x - width * 0.05, y - height * 0.35,
-      x + width * 0.08, y - height * 0.05,
-      x - width * 0.06, y + height * 0.25,
-      x + width * 0.03, y + height * 0.35,
-    ]);
-    this.crackOverlay.endFill();
   }
 
   _flashEgg(color) {
@@ -1344,6 +1402,142 @@ export class AppGame {
     };
 
     this.app.ticker.add(tick);
+  }
+
+  async _loadEggSprites() {
+    if (this.fullEggSprite || this.brokenEggSprite) return;
+    try {
+      const textures = await Assets.load([
+        '/assets/egg.png',
+        '/assets/egg_broken.png',
+      ]);
+      const fullTex = Array.isArray(textures)
+        ? textures[0]
+        : textures['/assets/egg.png'];
+      const brokenTex = Array.isArray(textures)
+        ? textures[1]
+        : textures['/assets/egg_broken.png'];
+      if (!fullTex || !brokenTex) {
+        throw new Error('Egg textures failed to load.');
+      }
+      this.fullEggSprite = new Sprite(fullTex);
+      this.brokenEggSprite = new Sprite(brokenTex);
+      this.fullEggSprite.anchor.set(0.5);
+      this.brokenEggSprite.anchor.set(0.5);
+      this.eggSpriteContainer.addChild(this.fullEggSprite, this.brokenEggSprite);
+      this._syncEggSprites();
+      this._renderPlay();
+    } catch (err) {
+      // Keep graphics egg if assets are missing.
+      this.fullEggSprite = null;
+      this.brokenEggSprite = null;
+    }
+  }
+
+  _syncEggSprites() {
+    if (!this.fullEggSprite || !this.brokenEggSprite || !this.eggCenter) return;
+    const { x, y, width, height } = this.eggCenter;
+    const scaleX = width / this.fullEggSprite.texture.width;
+    const scaleY = height / this.fullEggSprite.texture.height;
+    const scale = Math.min(scaleX, scaleY);
+    this.fullEggSprite.scale.set(scale);
+    this.brokenEggSprite.scale.set(scale);
+    this.fullEggSprite.position.set(x, y);
+    this.brokenEggSprite.position.set(x, y);
+    this.fullEggSprite.alpha = this.isCracked ? 0 : 1;
+    this.brokenEggSprite.alpha = this.isCracked ? 1 : 0;
+    this.eggSpriteContainer.visible = true;
+  }
+
+  async _knockAnim() {
+    if (this._isKnocking || !this.eggCenter) return;
+    this._isKnocking = true;
+    const baseScale = this.eggSpriteContainer.scale.x || 1;
+    const baseRot = this.eggSpriteContainer.rotation || 0;
+    const baseX = this.eggSpriteContainer.x;
+
+    const tween = (durationMs, onUpdate) => new Promise((resolve) => {
+      const start = performance.now();
+      const tick = () => {
+        const now = performance.now();
+        const t = Math.min(1, (now - start) / durationMs);
+        onUpdate(t);
+        if (t < 1) requestAnimationFrame(tick);
+        else resolve();
+      };
+      requestAnimationFrame(tick);
+    });
+
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+    await tween(120, (t) => {
+      const e = easeOutCubic(t);
+      this.eggSpriteContainer.scale.set(baseScale * (1 - 0.05 * e), baseScale * (1 + 0.03 * e));
+      this.eggSpriteContainer.rotation = baseRot + Math.sin(e * Math.PI) * 0.05;
+    });
+
+    const shakes = 10;
+    for (let i = 0; i < shakes; i += 1) {
+      this.eggSpriteContainer.x = baseX + (i % 2 === 0 ? -6 : 6);
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    this.eggSpriteContainer.x = baseX;
+
+    await tween(120, (t) => {
+      const e = easeOutCubic(t);
+      this.eggSpriteContainer.scale.set(baseScale * (0.95 + 0.05 * e), baseScale * (1.03 - 0.03 * e));
+      this.eggSpriteContainer.rotation = baseRot * (1 - e);
+    });
+
+    this.eggSpriteContainer.scale.set(baseScale);
+    this.eggSpriteContainer.rotation = baseRot;
+    this._isKnocking = false;
+  }
+
+  _spawnShards() {
+    if (!this.eggCenter) return;
+    const { x, y } = this.eggCenter;
+    const shardContainer = new Container();
+    this.eggSpriteContainer.addChild(shardContainer);
+    const shards = [];
+    const count = 10;
+
+    for (let i = 0; i < count; i += 1) {
+      const g = new Graphics();
+      g.beginFill(0xffffff, 0.9);
+      g.moveTo(0, 0);
+      g.lineTo(10 + Math.random() * 18, 0);
+      g.lineTo(0, 10 + Math.random() * 18);
+      g.closePath();
+      g.endFill();
+      g.x = x + (Math.random() - 0.5) * 40;
+      g.y = y + (Math.random() - 0.5) * 40;
+      g.rotation = Math.random() * Math.PI;
+      shardContainer.addChild(g);
+      shards.push({
+        g,
+        vx: (Math.random() - 0.5) * 16,
+        vy: -6 - Math.random() * 8,
+        vr: (Math.random() - 0.5) * 0.3,
+        life: 60 + Math.floor(Math.random() * 20),
+      });
+    }
+
+    const tickerFn = () => {
+      for (const s of shards) {
+        s.g.x += s.vx;
+        s.g.y += s.vy;
+        s.vy += 0.35;
+        s.g.rotation += s.vr;
+        s.life -= 1;
+        s.g.alpha = Math.max(0, s.life / 80);
+      }
+      if (shards.every((s) => s.life <= 0)) {
+        this.app.ticker.remove(tickerFn);
+        shardContainer.destroy({ children: true });
+      }
+    };
+    this.app.ticker.add(tickerFn);
   }
 
   _startBonusBounce() {
@@ -1435,27 +1629,77 @@ export class AppGame {
       this._activeAnim = null;
     }
 
+    if (this.fullEggSprite && this.brokenEggSprite) {
+      const tween = (durationMs, onUpdate) => new Promise((resolve) => {
+        const start = performance.now();
+        const tick = () => {
+          const now = performance.now();
+          const t = Math.min(1, (now - start) / durationMs);
+          onUpdate(t);
+          if (t < 1) requestAnimationFrame(tick);
+          else resolve();
+        };
+        requestAnimationFrame(tick);
+      });
+      const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+      this._spawnShards();
+      this.fullEggSprite.alpha = 1;
+      this.brokenEggSprite.alpha = 0;
+
+      return tween(220, (t) => {
+        const e = easeOutCubic(t);
+        this.fullEggSprite.alpha = 1 - e;
+        this.brokenEggSprite.alpha = e;
+      }).then(() => {
+        this.fullEggSprite.alpha = 0;
+        this.brokenEggSprite.alpha = 1;
+      });
+    }
+
+    if (this.egg) {
+      this.egg.alpha = 0;
+    }
+    if (this.crackOverlay) {
+      this.crackOverlay.visible = false;
+    }
+
     const { x, y, width, height } = this.eggCenter || { x: 0, y: 0, width: 200, height: 260 };
     const leftShell = new Graphics();
     const rightShell = new Graphics();
     const flash = new Graphics();
+    const fragments = [];
 
     const shellFill = 0xf5d586;
     const shellStroke = 0xb88c1a;
+
+    const sampleEllipse = (cx, cy, rx, ry, startDeg, endDeg, steps) => {
+      const points = [];
+      for (let i = 0; i <= steps; i += 1) {
+        const t = i / steps;
+        const angle = (startDeg + (endDeg - startDeg) * t) * (Math.PI / 180);
+        points.push([cx + Math.cos(angle) * rx, cy + Math.sin(angle) * ry]);
+      }
+      return points;
+    };
 
     const drawShellHalf = (gfx, side) => {
       gfx.clear();
       gfx.lineStyle(3, shellStroke, 1);
       gfx.beginFill(shellFill, 0.95);
-      const dir = side === 'left' ? -1 : 1;
-      gfx.drawPolygon([
-        x + dir * 10, y - height * 0.2,
-        x + dir * (width * 0.25), y,
-        x + dir * 12, y + height * 0.25,
-        x + dir * (width * 0.18), y + height * 0.42,
-        x + dir * 4, y + height * 0.35,
-        x + dir * (width * 0.14), y + height * 0.08,
-      ]);
+      const isLeft = side === 'left';
+      const outer = isLeft
+        ? sampleEllipse(x, y, width / 2, height / 2, 120, 240, 9)
+        : sampleEllipse(x, y, width / 2, height / 2, 60, -60, 9);
+      const seamOffsets = [0.02, -0.01, 0.015, -0.02, 0.01, -0.015];
+      const seamYs = [0.35, 0.2, 0.05, -0.08, -0.22, -0.34];
+      const seam = seamYs.map((yoff, idx) => {
+        const offset = width * (0.02 + seamOffsets[idx]);
+        const sx = isLeft ? x + offset : x - offset;
+        return [sx, y + yoff * height];
+      });
+      const points = outer.concat(seam);
+      gfx.drawPolygon(points);
       gfx.endFill();
     };
 
@@ -1466,10 +1710,27 @@ export class AppGame {
     rightShell.alpha = 0.95;
     flash.alpha = 0;
 
-    this.root.addChild(leftShell, rightShell, flash);
+    const fragmentCount = 2;
+    for (let i = 0; i < fragmentCount; i += 1) {
+      const frag = new Graphics();
+      frag.beginFill(shellFill, 0.9);
+      frag.lineStyle(2, shellStroke, 0.9);
+      frag.drawPolygon([0, 0, 10, -6, 18, 6]);
+      frag.endFill();
+      frag.position.set(x + (i - 1.5) * 8, y - height * 0.05);
+      frag.rotation = (i - 2) * 0.2;
+      fragments.push({
+        gfx: frag,
+        vx: (i - 0.5) * 0.6,
+        vy: -1.2 - i * 0.15,
+        vr: (i % 2 === 0 ? 1 : -1) * 0.04,
+      });
+    }
+
+    this.root.addChild(leftShell, rightShell, flash, ...fragments.map((f) => f.gfx));
 
     let frame = 0;
-    const duration = 50;
+    const duration = 32;
     const baseY = y - height * 0.05;
 
     const easeOut = (t) => 1 - Math.pow(1 - t, 3);
@@ -1481,13 +1742,20 @@ export class AppGame {
       const eased = easeOut(t);
       const fall = easeIn(t);
 
-      leftShell.position.set(-width * 0.08 * eased, (height * 0.55) * fall);
-      leftShell.rotation = -0.2 * eased;
+      leftShell.position.set(-width * 0.18 * eased, (height * 0.6) * fall);
+      leftShell.rotation = -0.45 * eased;
       leftShell.alpha = 0.95 * (1 - t * 0.4);
 
-      rightShell.position.set(width * 0.08 * eased, (height * 0.55) * fall);
-      rightShell.rotation = 0.2 * eased;
+      rightShell.position.set(width * 0.18 * eased, (height * 0.6) * fall);
+      rightShell.rotation = 0.45 * eased;
       rightShell.alpha = 0.95 * (1 - t * 0.4);
+
+      fragments.forEach((frag) => {
+        frag.gfx.position.x += frag.vx;
+        frag.gfx.position.y += frag.vy + fall * 1.2;
+        frag.gfx.rotation += frag.vr;
+        frag.gfx.alpha = Math.max(0, 1 - t * 0.8);
+      });
 
       flash.clear();
       if (t > 0.35) {
@@ -1503,6 +1771,10 @@ export class AppGame {
         leftShell.destroy();
         rightShell.destroy();
         flash.destroy();
+        fragments.forEach((frag) => frag.gfx.destroy());
+        if (this.egg) {
+          this.egg.alpha = 1;
+        }
         this._activeAnim = null;
         resolveFn();
       }
@@ -1519,6 +1791,10 @@ export class AppGame {
       leftShell.destroy();
       rightShell.destroy();
       flash.destroy();
+      fragments.forEach((frag) => frag.gfx.destroy());
+      if (this.egg) {
+        this.egg.alpha = 1;
+      }
       resolveFn();
     };
 
