@@ -450,6 +450,7 @@ export class AppGame {
     this.containerEl.appendChild(bar);
     this.storedBarRoot = bar;
     this.storedSlots = slots;
+    this._updateStoredBarLayout();
     this._renderStoredBar();
   }
 
@@ -476,8 +477,8 @@ export class AppGame {
       label.style.marginBottom = '6px';
 
       const isActive = egg.uid === this.activeEggUid;
-      slot.style.background = isActive ? 'rgba(76, 175, 80, 0.2)' : 'rgba(45,13,13,0.7)';
-      slot.style.borderColor = isActive ? 'rgba(76, 175, 80, 0.7)' : 'rgba(255, 213, 79, 0.4)';
+      slot.style.background = isActive ? 'rgba(90,40,10,0.95)' : 'rgba(45,13,13,0.7)';
+      slot.style.borderColor = isActive ? '#ffd54f' : 'rgba(255, 213, 79, 0.4)';
 
       slot.appendChild(label);
       if (egg.uid !== this.activeEggUid) {
@@ -565,11 +566,32 @@ export class AppGame {
     Object.assign(headerRow.style, {
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'flex-start',
+      justifyContent: 'space-between',
       gap: '12px',
     });
 
+    const closeX = document.createElement('button');
+    closeX.textContent = '✕';
+    Object.assign(closeX.style, {
+      width: '30px',
+      height: '30px',
+      background: 'linear-gradient(135deg, rgba(93, 64, 55, 0.9), rgba(55, 28, 24, 0.9))',
+      color: '#ffe082',
+      border: '1px solid rgba(255, 213, 79, 0.35)',
+      borderRadius: '999px',
+      fontWeight: '800',
+      fontSize: '14px',
+      lineHeight: '1',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'pointer',
+      boxShadow: '0 4px 10px rgba(0,0,0,0.25)',
+    });
+    closeX.onclick = () => this._closeModal();
+
     headerRow.appendChild(title);
+    headerRow.appendChild(closeX);
 
     const body = document.createElement('div');
     Object.assign(body.style, {
@@ -593,11 +615,38 @@ export class AppGame {
     this.modalRoot = overlay;
     this.modalTitle = title;
     this.modalBody = body;
+    this.modalCloseX = closeX;
+  }
+
+  _updateStoredBarLayout() {
+    if (!this.storedBarRoot || !this.storedSlots) return;
+    const viewportWidth = window.innerWidth || 0;
+    const isTablet = viewportWidth > 520 && viewportWidth <= 920;
+    const isMobile = viewportWidth <= 520;
+    const slotWidth = isMobile ? 100 : isTablet ? 120 : 150;
+    const slotMinHeight = isMobile ? 46 : isTablet ? 50 : 54;
+    const fontSize = isMobile ? 11 : isTablet ? 12 : 13;
+    const padding = isMobile ? '8px 10px' : isTablet ? '9px 11px' : '10px 12px';
+    const gap = isMobile ? '8px' : isTablet ? '10px' : '12px';
+    this.storedBarRoot.style.padding = padding;
+    this.storedBarRoot.style.gap = gap;
+    const top = isMobile ? '170px' : isTablet ? '170px' : '150px';
+    this.storedBarRoot.style.maxWidth = 'none';
+    this.storedBarRoot.style.top = top;
+
+    this.storedSlots.forEach((slot) => {
+      slot.style.width = `${slotWidth}px`;
+      slot.style.minHeight = `${slotMinHeight}px`;
+      slot.style.fontSize = `${fontSize}px`;
+    });
   }
 
   _showModal(title, message) {
     if (!this.modalRoot) return;
     this.modalTitle.textContent = title;
+    if (this.modalCloseX) {
+      this.modalCloseX.style.display = 'inline-flex';
+    }
     this.modalBody.innerHTML = '';
     this.modalBody.style.display = 'block';
     this.modalBody.style.gap = '0';
@@ -790,6 +839,9 @@ export class AppGame {
       ? `You have won RM${amountText}.`
       : 'Try again next time!';
     this._showModal(title, message);
+    if (this.modalCloseX) {
+      this.modalCloseX.style.display = 'none';
+    }
     if (this.modalTitle) {
       this.modalTitle.style.textAlign = 'center';
       this.modalTitle.style.width = '100%';
@@ -2024,6 +2076,7 @@ export class AppGame {
 
     this.backButton.position.set(24, 24);
     this._storedBarTop = null;
+    this._updateStoredBarLayout();
 
     this._renderHomeDom();
     this._renderPlay();
