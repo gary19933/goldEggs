@@ -49,6 +49,7 @@ export class AppGame {
     this._activeAnim = null;
     this._bonusAnim = null;
     this._isKnocking = false;
+    this._resultTimeout = null;
     this._storedBarTop = null;
 
     this.root = new Container();
@@ -474,6 +475,10 @@ export class AppGame {
         : `${egg.label ?? egg.id ?? 'Egg'}`;
       label.style.marginBottom = '6px';
 
+      const isActive = egg.uid === this.activeEggUid;
+      slot.style.background = isActive ? 'rgba(76, 175, 80, 0.2)' : 'rgba(45,13,13,0.7)';
+      slot.style.borderColor = isActive ? 'rgba(76, 175, 80, 0.7)' : 'rgba(255, 213, 79, 0.4)';
+
       slot.appendChild(label);
       if (egg.uid !== this.activeEggUid) {
         const btn = document.createElement('button');
@@ -560,26 +565,11 @@ export class AppGame {
     Object.assign(headerRow.style, {
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-start',
       gap: '12px',
     });
 
-    const closeX = document.createElement('button');
-    closeX.textContent = 'X';
-    Object.assign(closeX.style, {
-      width: '32px',
-      height: '32px',
-      background: 'rgba(93, 64, 55, 0.8)',
-      color: '#ffe082',
-      border: '1px solid rgba(255, 213, 79, 0.4)',
-      borderRadius: '8px',
-      fontWeight: '800',
-      cursor: 'pointer',
-    });
-    closeX.onclick = () => this._closeModal();
-
     headerRow.appendChild(title);
-    headerRow.appendChild(closeX);
 
     const body = document.createElement('div');
     Object.assign(body.style, {
@@ -589,31 +579,8 @@ export class AppGame {
       whiteSpace: 'pre-wrap',
     });
 
-    const closeRow = document.createElement('div');
-    Object.assign(closeRow.style, {
-      display: 'flex',
-      justifyContent: 'flex-end',
-      gap: '10px',
-      marginTop: '6px',
-    });
-
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent = 'Close';
-    Object.assign(closeBtn.style, {
-      padding: '8px 14px',
-      background: '#5d4037',
-      color: '#ffe082',
-      border: 'none',
-      borderRadius: '10px',
-      fontWeight: '700',
-      cursor: 'pointer',
-    });
-    closeBtn.onclick = () => this._closeModal();
-
-    closeRow.appendChild(closeBtn);
     panel.appendChild(headerRow);
     panel.appendChild(body);
-    panel.appendChild(closeRow);
     overlay.appendChild(panel);
 
     overlay.addEventListener('click', (event) => {
@@ -747,20 +714,18 @@ export class AppGame {
         this.lastResultText = `Won RM${winAmount}`;
         this._recordHistory(1, egg, { winAmount });
       // this._setStatus(`Fortune found! +${winAmount}`, 0x8cff66, 0xe4ffd8);
-      this._flashEgg(0x9ccc65);
+      // this._flashEgg(0x9ccc65);
       this._showToast(`Fortune found! +RM${winAmount}`, 'success');
     } else {
-      const removed = this._removeActiveEgg();
+      this._removeActiveEgg();
       this.lastBonus = false;
       this.lastResultText = 'Try again later';
         this._recordHistory(0, egg);
         this._setStatus('', 0xffccbc, 0x2d0d0d);
-        this._flashEgg(0xff7043);
+        // this._flashEgg(0xff7043);
         this._showToast('Try again later', 'error');
-        if (removed) {
-          this._selectEggTab(this.activeTabId || 'gold');
-        }
       }
+      this._showResultModalAndReset(outcome === 'win', winAmount, egg);
     } else {
       this.lastBonus = false;
       this._setStatus('Action completed.', 0xffeb3b, 0xfff7cf);
@@ -816,6 +781,70 @@ export class AppGame {
     this.storedEggs.push(newEgg);
     this._renderStoredBar();
     this._enterPlay(newEgg, 'stored');
+  }
+
+  _showResultModalAndReset(didWin, winAmount, egg) {
+    const amountText = typeof winAmount === 'number' ? winAmount : 0;
+    const title = didWin ? 'Congratulations' : 'Out Of Luck';
+    const message = didWin
+      ? `You have won RM${amountText}.`
+      : 'Try again next time!';
+    this._showModal(title, message);
+    if (this.modalTitle) {
+      this.modalTitle.style.textAlign = 'center';
+      this.modalTitle.style.width = '100%';
+    }
+
+    if (didWin && egg && !this.storedEggs.some((item) => item.uid === egg.uid)) {
+      this.storedEggs.push(egg);
+      this._renderStoredBar();
+    }
+
+    if (this._resultTimeout) {
+      clearTimeout(this._resultTimeout);
+      this._resultTimeout = null;
+    }
+    if (this.modalBody) {
+      this.modalBody.innerHTML = '';
+      this.modalBody.style.display = 'flex';
+      this.modalBody.style.flexDirection = 'column';
+      this.modalBody.style.gap = '12px';
+      this.modalBody.style.whiteSpace = 'normal';
+
+      const text = document.createElement('div');
+      text.textContent = message;
+      if (didWin || !didWin) {
+        Object.assign(text.style, {
+          textAlign: 'center',
+          fontSize: '18px',
+          fontWeight: '700',
+        });
+      }
+      this.modalBody.appendChild(text);
+
+      const confirmBtn = document.createElement('button');
+      confirmBtn.textContent = 'Confirm';
+      Object.assign(confirmBtn.style, {
+        alignSelf: 'center',
+        padding: '8px 14px',
+        background: '#5d4037',
+        color: '#ffe082',
+        border: 'none',
+        borderRadius: '10px',
+        fontWeight: '700',
+        cursor: 'pointer',
+      });
+      confirmBtn.onclick = () => {
+        this._closeModal();
+        this.isCracked = false;
+        this.lastBonus = false;
+        if (!didWin) {
+          this.activeEggUid = null;
+        }
+        this._renderPlay();
+      };
+      this.modalBody.appendChild(confirmBtn);
+    }
   }
 
   _retrieveStoredEgg(egg) {
@@ -1442,8 +1471,9 @@ export class AppGame {
     const scale = Math.min(scaleX, scaleY);
     this.fullEggSprite.scale.set(scale);
     this.brokenEggSprite.scale.set(scale);
-    this.fullEggSprite.position.set(x, y);
-    this.brokenEggSprite.position.set(x, y);
+    this.eggSpriteContainer.position.set(x, y);
+    this.fullEggSprite.position.set(0, 0);
+    this.brokenEggSprite.position.set(0, 0);
     this.fullEggSprite.alpha = this.isCracked ? 0 : 1;
     this.brokenEggSprite.alpha = this.isCracked ? 1 : 0;
     this.eggSpriteContainer.visible = true;
@@ -1454,7 +1484,6 @@ export class AppGame {
     this._isKnocking = true;
     const baseScale = this.eggSpriteContainer.scale.x || 1;
     const baseRot = this.eggSpriteContainer.rotation || 0;
-    const baseX = this.eggSpriteContainer.x;
 
     const tween = (durationMs, onUpdate) => new Promise((resolve) => {
       const start = performance.now();
@@ -1472,20 +1501,19 @@ export class AppGame {
 
     await tween(120, (t) => {
       const e = easeOutCubic(t);
-      this.eggSpriteContainer.scale.set(baseScale * (1 - 0.05 * e), baseScale * (1 + 0.03 * e));
-      this.eggSpriteContainer.rotation = baseRot + Math.sin(e * Math.PI) * 0.05;
+      this.eggSpriteContainer.scale.set(baseScale * (1 - 0.04 * e), baseScale * (1 + 0.02 * e));
+      this.eggSpriteContainer.rotation = baseRot + Math.sin(e * Math.PI) * 0.03;
     });
 
-    const shakes = 10;
+    const shakes = 8;
     for (let i = 0; i < shakes; i += 1) {
-      this.eggSpriteContainer.x = baseX + (i % 2 === 0 ? -6 : 6);
+      this.eggSpriteContainer.rotation = baseRot + (i % 2 === 0 ? -0.02 : 0.02);
       await new Promise((r) => setTimeout(r, 20));
     }
-    this.eggSpriteContainer.x = baseX;
 
     await tween(120, (t) => {
       const e = easeOutCubic(t);
-      this.eggSpriteContainer.scale.set(baseScale * (0.95 + 0.05 * e), baseScale * (1.03 - 0.03 * e));
+      this.eggSpriteContainer.scale.set(baseScale * (0.96 + 0.04 * e), baseScale * (1.02 - 0.02 * e));
       this.eggSpriteContainer.rotation = baseRot * (1 - e);
     });
 
@@ -1510,8 +1538,8 @@ export class AppGame {
       g.lineTo(0, 10 + Math.random() * 18);
       g.closePath();
       g.endFill();
-      g.x = x + (Math.random() - 0.5) * 40;
-      g.y = y + (Math.random() - 0.5) * 40;
+      g.x = (Math.random() - 0.5) * 40;
+      g.y = (Math.random() - 0.5) * 40;
       g.rotation = Math.random() * Math.PI;
       shardContainer.addChild(g);
       shards.push({
@@ -1667,7 +1695,6 @@ export class AppGame {
     const { x, y, width, height } = this.eggCenter || { x: 0, y: 0, width: 200, height: 260 };
     const leftShell = new Graphics();
     const rightShell = new Graphics();
-    const flash = new Graphics();
     const fragments = [];
 
     const shellFill = 0xf5d586;
@@ -1708,8 +1735,6 @@ export class AppGame {
 
     leftShell.alpha = 0.95;
     rightShell.alpha = 0.95;
-    flash.alpha = 0;
-
     const fragmentCount = 2;
     for (let i = 0; i < fragmentCount; i += 1) {
       const frag = new Graphics();
@@ -1727,12 +1752,10 @@ export class AppGame {
       });
     }
 
-    this.root.addChild(leftShell, rightShell, flash, ...fragments.map((f) => f.gfx));
+    this.root.addChild(leftShell, rightShell, ...fragments.map((f) => f.gfx));
 
     let frame = 0;
     const duration = 32;
-    const baseY = y - height * 0.05;
-
     const easeOut = (t) => 1 - Math.pow(1 - t, 3);
     const easeIn = (t) => Math.pow(t, 2);
 
@@ -1757,20 +1780,10 @@ export class AppGame {
         frag.gfx.alpha = Math.max(0, 1 - t * 0.8);
       });
 
-      flash.clear();
-      if (t > 0.35) {
-        const flashT = (t - 0.35) / 0.65;
-        flash.beginFill(0xfff5b0, 0.45 * (1 - flashT * 0.7));
-        flash.drawEllipse(x, baseY, width * (0.2 + 0.3 * flashT), height * (0.12 + 0.25 * flashT));
-        flash.endFill();
-        flash.alpha = 0.8 * (1 - flashT * 0.5);
-      }
-
       if (frame >= duration) {
         this.app.ticker.remove(tick);
         leftShell.destroy();
         rightShell.destroy();
-        flash.destroy();
         fragments.forEach((frag) => frag.gfx.destroy());
         if (this.egg) {
           this.egg.alpha = 1;
@@ -1790,7 +1803,6 @@ export class AppGame {
       this.app.ticker.remove(tick);
       leftShell.destroy();
       rightShell.destroy();
-      flash.destroy();
       fragments.forEach((frag) => frag.gfx.destroy());
       if (this.egg) {
         this.egg.alpha = 1;
