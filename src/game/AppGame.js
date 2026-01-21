@@ -43,6 +43,7 @@ export class AppGame {
     this.activeTabId = 'gold';
     this.previousTabId = null;
     this._prevEggOnStoredLose = null;
+    this.maxCracks = 5;
 
     this._statusBgColor = 0xfff7cf;
     this._statusTextColor = 0xffeb3b;
@@ -51,6 +52,7 @@ export class AppGame {
     this._isKnocking = false;
     this._resultTimeout = null;
     this._storedBarTop = null;
+    this._eggSpriteKey = null;
 
     this.root = new Container();
     this.app.stage.addChild(this.root);
@@ -477,11 +479,12 @@ export class AppGame {
       label.style.marginBottom = '6px';
 
       const isActive = egg.uid === this.activeEggUid;
+      const isMaxed = egg.isMaxed === true;
       slot.style.background = isActive ? 'rgba(90,40,10,0.95)' : 'rgba(45,13,13,0.7)';
       slot.style.borderColor = isActive ? '#ffd54f' : 'rgba(255, 213, 79, 0.4)';
 
       slot.appendChild(label);
-      if (egg.uid !== this.activeEggUid) {
+      if (egg.uid !== this.activeEggUid && !isMaxed) {
         const btn = document.createElement('button');
         btn.textContent = 'Retrieve';
         Object.assign(btn.style, {
@@ -748,7 +751,7 @@ export class AppGame {
       await this._playBreakAnimation();
 
       if (egg) {
-        egg.tries = (egg.tries ?? 0) + 1;
+        egg.tries = Math.min(this.maxCracks, (egg.tries ?? 0) + 1);
       }
 
       if (outcome === 'win') {
@@ -793,6 +796,12 @@ export class AppGame {
       this._showToast('Select an egg first.', 'info');
       return;
     }
+    const tries = egg.tries ?? 0;
+    if (tries >= this.maxCracks) {
+      this._showToast(`Max level reached (${this.maxCracks}/${this.maxCracks}).`, 'info');
+      return;
+    }
+    egg.lastCrackLevel = this._getEggLevel(egg);
     this.lockUI(true);
     await this._knockAnim();
     this.onAction({
@@ -892,6 +901,11 @@ export class AppGame {
         this.lastBonus = false;
         if (!didWin) {
           this.activeEggUid = null;
+        }
+        if (didWin && egg && (egg.tries ?? 0) >= this.maxCracks) {
+          egg.isMaxed = true;
+          this.activeEggUid = null;
+          this._renderStoredBar();
         }
         this._renderPlay();
       };
@@ -1035,6 +1049,9 @@ export class AppGame {
     if (!hasEgg) {
       this.isCracked = false;
       this.lastBonus = false;
+    }
+    if (hasEgg) {
+      this._ensureEggSprites(egg);
     }
     this._drawEgg(width / 2, height * 0.55);
     this._drawCrackOverlay();
@@ -1461,6 +1478,86 @@ export class AppGame {
     if (!this.isCracked || !this.eggCenter) return;
   }
 
+  _getEggLevel(egg) {
+    const tries = egg?.tries ?? 0;
+    return Math.min(tries + 1, this.maxCracks);
+  }
+
+  _getEggLevelForDisplay(egg) {
+    if (this.isCracked && egg?.lastCrackLevel) {
+      return egg.lastCrackLevel;
+    }
+    return this._getEggLevel(egg);
+  }
+
+  _getEggSpriteUrls(egg, level) {
+    const type = egg?.id === 'premium' ? 'premium' : 'gold';
+    const safeLevel = Math.max(1, Math.min(level || 1, this.maxCracks));
+    return {
+      fullUrl: `/assets/${type}_egg${safeLevel}.png`,
+      brokenUrl: `/assets/${type}_egg_broken${safeLevel}.png`,
+      key: `${type}-${safeLevel}`,
+    };
+  }
+
+  async _loadEggTextures(fullUrl, brokenUrl) {
+    const textures = await Assets.load([fullUrl, brokenUrl]);
+    const fullTex = Array.isArray(textures) ? textures[0] : textures[fullUrl];
+    const brokenTex = Array.isArray(textures) ? textures[1] : textures[brokenUrl];
+    if (!fullTex || !brokenTex) {
+      throw new Error('Egg textures failed to load.');
+    }
+    return { fullTex, brokenTex };
+  }
+
+  _applyEggTextures(fullTex, brokenTex) {
+    if (!this.fullEggSprite) {
+      this.fullEggSprite = new Sprite(fullTex);
+      this.fullEggSprite.anchor.set(0.5);
+      this.eggSpriteContainer.addChild(this.fullEggSprite);
+    } else {
+      this.fullEggSprite.texture = fullTex;
+    }
+
+    if (!this.brokenEggSprite) {
+      this.brokenEggSprite = new Sprite(brokenTex);
+      this.brokenEggSprite.anchor.set(0.5);
+      this.eggSpriteContainer.addChild(this.brokenEggSprite);
+    } else {
+      this.brokenEggSprite.texture = brokenTex;
+    }
+
+    this._syncEggSprites();
+  }
+
+  async _ensureEggSprites(egg) {
+    if (!egg) return;
+    const level = this._getEggLevelForDisplay(egg);
+    const { fullUrl, brokenUrl, key } = this._getEggSpriteUrls(egg, level);
+    if (this._eggSpriteKey === key && this.fullEggSprite && this.brokenEggSprite) {
+      this._syncEggSprites();
+      return;
+    }
+    try {
+      const { fullTex, brokenTex } = await this._loadEggTextures(fullUrl, brokenUrl);
+      this._applyEggTextures(fullTex, brokenTex);
+      this._eggSpriteKey = key;
+    } catch (err) {
+      try {
+        const { fullTex, brokenTex } = await this._loadEggTextures(
+          '/assets/egg.png',
+          '/assets/egg_broken.png',
+        );
+        this._applyEggTextures(fullTex, brokenTex);
+        this._eggSpriteKey = key;
+      } catch (fallbackErr) {
+        this.fullEggSprite = null;
+        this.brokenEggSprite = null;
+        this._eggSpriteKey = null;
+      }
+    }
+  }
+
   _flashEgg(color) {
     const { x, y, width, height } = this.eggCenter || { x: 0, y: 0, width: 120, height: 160 };
     const overlay = new Graphics();
@@ -1488,30 +1585,18 @@ export class AppGame {
   async _loadEggSprites() {
     if (this.fullEggSprite || this.brokenEggSprite) return;
     try {
-      const textures = await Assets.load([
+      const { fullTex, brokenTex } = await this._loadEggTextures(
         '/assets/egg.png',
         '/assets/egg_broken.png',
-      ]);
-      const fullTex = Array.isArray(textures)
-        ? textures[0]
-        : textures['/assets/egg.png'];
-      const brokenTex = Array.isArray(textures)
-        ? textures[1]
-        : textures['/assets/egg_broken.png'];
-      if (!fullTex || !brokenTex) {
-        throw new Error('Egg textures failed to load.');
-      }
-      this.fullEggSprite = new Sprite(fullTex);
-      this.brokenEggSprite = new Sprite(brokenTex);
-      this.fullEggSprite.anchor.set(0.5);
-      this.brokenEggSprite.anchor.set(0.5);
-      this.eggSpriteContainer.addChild(this.fullEggSprite, this.brokenEggSprite);
-      this._syncEggSprites();
+      );
+      this._applyEggTextures(fullTex, brokenTex);
+      this._eggSpriteKey = 'default';
       this._renderPlay();
     } catch (err) {
       // Keep graphics egg if assets are missing.
       this.fullEggSprite = null;
       this.brokenEggSprite = null;
+      this._eggSpriteKey = null;
     }
   }
 
@@ -1978,6 +2063,7 @@ export class AppGame {
       uid: makeUid(template.id || 'egg'),
       tries: 0,
       lastWinAmount: 0,
+      lastCrackLevel: null,
     };
   }
 
@@ -2002,6 +2088,7 @@ export class AppGame {
   _updateActionButtons() {
     const egg = this._getActiveEgg();
     const tries = egg?.tries ?? 0;
+    const canCrack = !!egg && tries < this.maxCracks;
     const canCashout = tries > 0;
     const hideHome = tries > 0;
     const disableAlpha = 0.5;
@@ -2012,7 +2099,7 @@ export class AppGame {
       btn.eventMode = enabled && !this.isLocked ? 'static' : disableMode;
     };
 
-    setState(this.actionButton, !!egg);
+    setState(this.actionButton, canCrack);
     setState(this.cashoutButton, !!egg && canCashout);
 
     if (this.actionButton) this.actionButton.visible = !!egg;

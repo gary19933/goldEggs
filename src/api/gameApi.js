@@ -2,6 +2,7 @@ const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const USE_MOCK = import.meta.env.VITE_API_USE_MOCK === 'true';
 export const SHOULD_MOCK = USE_MOCK || (!rawBaseUrl && import.meta.env.DEV);
 const FORCE_BONUS = import.meta.env.VITE_FORCE_BONUS === 'true';
+const FORCE_WIN = import.meta.env.VITE_FORCE_WIN === 'true';
 
 let mockBalance = 1000;
 
@@ -93,7 +94,7 @@ function mockAction(payload = {}) {
   const bonusChance = 0.01;
   const normalWinChance = 0.5 - bonusChance;
   const roll = Math.random();
-  const didWin = roll < bonusChance + normalWinChance;
+  const didWin = FORCE_WIN ? true : roll < bonusChance + normalWinChance;
   const didBonus = FORCE_BONUS ? didWin : roll < bonusChance;
   const winAmount = didWin ? betAmount * (didBonus ? 2 : 1) : 0;
   mockBalance = Math.max(0, mockBalance + winAmount - betAmount);
