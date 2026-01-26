@@ -127,9 +127,7 @@ export async function startGame(options = {}) {
       if (typeof onResult === 'function') {
         onResult({
           userId,
-          result: result?.result,
-          winAmount: result?.winAmount,
-          balance: result?.balance,
+          ...result,
           eggId: eggId ?? result?.eggId,
         });
       }

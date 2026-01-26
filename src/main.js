@@ -15,6 +15,7 @@ startGame({
   userId,
   token,
   lang,
+  allowGuest: true,
   onResult: (payload) => {
     window.parent?.postMessage(
       {

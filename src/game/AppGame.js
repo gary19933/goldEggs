@@ -711,6 +711,7 @@ export class AppGame {
     }
 
     const egg = eggId ? this._findEggByUid(eggId, this.activeSource) : this._getActiveEgg();
+    const storedEgg = eggId ? this._findEggByUid(eggId, 'stored') : null;
 
     if (outcome === 'stored') {
       this.lastBonus = false;
@@ -718,6 +719,23 @@ export class AppGame {
       this._moveActiveToStored();
       this._showToast('Your egg has been stored successfully.', 'success');
       this._selectEggTab(this.activeTabId || 'gold');
+      this.lockUI(false);
+      return;
+    }
+
+    if (outcome === 'redeemed') {
+      const targetEgg = storedEgg || egg;
+      if (targetEgg) {
+        this._removeEggFromArray(this.storedEggs, targetEgg.uid);
+        this._removeEggFromArray(this.boughtEggs, targetEgg.uid);
+        if (this.activeEggUid === targetEgg.uid) {
+          this.activeEggUid = null;
+        }
+      }
+      this._recordHistory(2, targetEgg, { winAmount });
+      this._showToast('Egg redeemed successfully.', 'success');
+      this._toggleMode('play');
+      this._renderPlay();
       this.lockUI(false);
       return;
     }
