@@ -91,8 +91,9 @@ function mockAction(payload = {}) {
     });
   }
 
-  const bonusChance = 0.01;
-  const normalWinChance = 0.5 - bonusChance;
+  const baseWinChance = 0.5 / Math.pow(2, Math.max(0, tryIndex));
+  const bonusChance = Math.min(0.01, baseWinChance);
+  const normalWinChance = Math.max(0, baseWinChance - bonusChance);
   const roll = Math.random();
   const didWin = FORCE_WIN ? true : roll < bonusChance + normalWinChance;
   const didBonus = FORCE_BONUS ? didWin : roll < bonusChance;

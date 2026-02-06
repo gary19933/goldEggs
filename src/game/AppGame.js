@@ -43,7 +43,7 @@ export class AppGame {
     this.activeTabId = 'gold';
     this.previousTabId = null;
     this._prevEggOnStoredLose = null;
-    this.maxCracks = 5;
+    this.maxCracks = 12;
 
     this._statusBgColor = 0xfff7cf;
     this._statusTextColor = 0xffeb3b;
@@ -705,7 +705,14 @@ export class AppGame {
   }
 
   async showResult(result = {}) {
-    const { result: outcome, winAmount = 0, balance, eggId, bonus } = result;
+    const {
+      result: outcome,
+      winAmount = 0,
+      balance,
+      eggId,
+      bonus,
+      chargeAmount = 0,
+    } = result;
     if (balance !== undefined) {
       this.updateBalance(balance);
     }
@@ -732,7 +739,7 @@ export class AppGame {
           this.activeEggUid = null;
         }
       }
-      this._recordHistory(2, targetEgg, { winAmount });
+      this._recordHistory(2, targetEgg, { winAmount, chargeAmount });
       this._showToast('Egg redeemed successfully.', 'success');
       this._toggleMode('play');
       this._renderPlay();
@@ -754,7 +761,7 @@ export class AppGame {
           this.cashoutHistory.length = 20;
         }
       }
-      this._recordHistory(2, egg, { winAmount: amount });
+      this._recordHistory(2, egg, { winAmount: amount, chargeAmount });
       this._showToast(`Cashed out RM${amount}.`, 'success');
       this._toggleMode('play');
       this._renderPlay();
@@ -782,7 +789,7 @@ export class AppGame {
           }
         }
         this.lastResultText = `Won RM${winAmount}`;
-        this._recordHistory(1, egg, { winAmount });
+        this._recordHistory(1, egg, { winAmount, chargeAmount });
       // this._setStatus(`Fortune found! +${winAmount}`, 0x8cff66, 0xe4ffd8);
       // this._flashEgg(0x9ccc65);
       this._showToast(`Fortune found! +RM${winAmount}`, 'success');
@@ -790,7 +797,7 @@ export class AppGame {
       this._removeActiveEgg();
       this.lastBonus = false;
       this.lastResultText = 'Try again later';
-        this._recordHistory(0, egg);
+        this._recordHistory(0, egg, { chargeAmount });
         this._setStatus('', 0xffccbc, 0x2d0d0d);
         // this._flashEgg(0xff7043);
         this._showToast('Try again later', 'error');
@@ -1374,7 +1381,11 @@ export class AppGame {
       });
 
       const title = document.createElement('div');
-      title.textContent = `${index + 1}. ${entry.eggType ?? 'Egg'}`;
+      const eggIdText = entry.eggId ? ` (#${entry.eggId})` : '';
+      const crackText = Number.isInteger(entry.tryIndex)
+        ? ` • Crack #${entry.tryIndex + 1}`
+        : '';
+      title.textContent = `${index + 1}. ${entry.eggType ?? 'Egg'}${eggIdText}${crackText}`;
 
       const status = document.createElement('div');
       const statusToken = statusStyle(entry.status);
@@ -1394,12 +1405,40 @@ export class AppGame {
       left.appendChild(status);
 
       const right = document.createElement('div');
-      right.textContent = entry.winAmount ? `RM${entry.winAmount}` : '-';
       Object.assign(right.style, {
         fontWeight: '800',
         color: '#ffd54f',
         textAlign: 'right',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        gap: '2px',
       });
+
+      const winLine = document.createElement('div');
+      winLine.textContent = entry.winAmount ? `Prize RM${entry.winAmount}` : '-';
+      right.appendChild(winLine);
+
+      if (entry.status === 2 && entry.winAmount) {
+        const redeemLine = document.createElement('div');
+        redeemLine.textContent = `Redeemed RM${entry.winAmount}`;
+        Object.assign(redeemLine.style, {
+          fontSize: '11px',
+          color: '#ffe082',
+          fontWeight: '700',
+        });
+        right.appendChild(redeemLine);
+      }
+
+      const chargeLine = document.createElement('div');
+      const chargeAmount = typeof entry.chargeAmount === 'number' ? entry.chargeAmount : 0;
+      chargeLine.textContent = chargeAmount > 0 ? `Charge RM${chargeAmount}` : '';
+      Object.assign(chargeLine.style, {
+        fontSize: '11px',
+        color: '#d7c6a0',
+        fontWeight: '600',
+      });
+      right.appendChild(chargeLine);
 
       const time = document.createElement('div');
       time.textContent = when;
@@ -2049,6 +2088,7 @@ export class AppGame {
       eggId: egg?.uid ?? null,
       eggType: egg?.id ?? null,
       betAmount: egg?.bet ?? null,
+      tryIndex: typeof egg?.tries === 'number' ? egg.tries : (typeof egg?.triesInSet === 'number' ? egg.triesInSet : null),
       time: new Date(),
       ...extra,
     });

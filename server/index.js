@@ -8,12 +8,13 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = Number(process.env.PORT) || 3001;
-const MAX_CRACKS = 5;
+const MAX_CRACKS = 12;
 const FORCE_BONUS = process.env.FORCE_BONUS === 'true';
 const FORCE_WIN = process.env.FORCE_WIN === 'true';
 const LOG_PATH = process.env.LOG_PATH || path.resolve('server', 'logs', 'transactions.jsonl');
 
 let mockBalance = 1000;
+const eggStates = new Map();
 
 const buildStatus = (result) => {
   if (result === 'win') return 1;
@@ -25,6 +26,14 @@ const buildStatus = (result) => {
 const buildLevel = (tryIndex) => {
   if (typeof tryIndex !== 'number' || Number.isNaN(tryIndex)) return 1;
   return Math.min(Math.max(tryIndex + 1, 1), MAX_CRACKS);
+};
+
+const getEggState = (eggId) => {
+  if (!eggId) return null;
+  if (!eggStates.has(eggId)) {
+    eggStates.set(eggId, { hasCracked: false });
+  }
+  return eggStates.get(eggId);
 };
 
 const writeLog = async (entry) => {
@@ -69,6 +78,7 @@ app.post('/game/action', (req, res) => {
   const balanceBefore = mockBalance;
   const level = buildLevel(tryIndex);
   const now = new Date().toISOString();
+  const state = getEggState(eggId) || { hasCracked: false };
 
   if (action === 'store') {
     const response = {
@@ -76,6 +86,7 @@ app.post('/game/action', (req, res) => {
       status: null,
       result: 'stored',
       winAmount: 0,
+      chargeAmount: 0,
       balance: mockBalance,
       eggId,
       eggType,
@@ -108,11 +119,15 @@ app.post('/game/action', (req, res) => {
     const winAmount = betAmount;
     mockBalance = Math.max(0, mockBalance + winAmount);
     const result = action === 'redeem' ? 'redeemed' : 'cashout';
+    if (eggId) {
+      eggStates.delete(eggId);
+    }
     const response = {
       apiStatus: 'ok',
       status: 2,
       result,
       winAmount,
+      chargeAmount: 0,
       balance: mockBalance,
       eggId,
       eggType,
@@ -141,20 +156,29 @@ app.post('/game/action', (req, res) => {
     return res.json(response);
   }
 
-  const bonusChance = 0.01;
-  const normalWinChance = 0.5 - bonusChance;
+  const baseWinChance = 0.5 / Math.pow(2, Math.max(0, tryIndex));
+  const bonusChance = Math.min(0.01, baseWinChance);
+  const normalWinChance = Math.max(0, baseWinChance - bonusChance);
   const roll = Math.random();
   const didWin = FORCE_WIN ? true : roll < bonusChance + normalWinChance;
   const didBonus = FORCE_BONUS ? didWin : roll < bonusChance;
   const winAmount = didWin ? betAmount * (didBonus ? 2 : 1) : 0;
-  mockBalance = Math.max(0, mockBalance + winAmount - betAmount);
+  const chargeAmount = state?.hasCracked ? betAmount : 0;
+  mockBalance = Math.max(0, mockBalance + winAmount - chargeAmount);
 
   const result = didWin ? 'win' : 'lose';
+  if (result === 'lose' && eggId) {
+    eggStates.delete(eggId);
+  } else if (eggId) {
+    state.hasCracked = true;
+    eggStates.set(eggId, state);
+  }
   const response = {
     apiStatus: 'ok',
     status: buildStatus(result),
     result,
     winAmount,
+    chargeAmount,
     balance: mockBalance,
     eggId,
     eggType,
@@ -173,6 +197,7 @@ app.post('/game/action', (req, res) => {
     tryIndex,
     level,
     betAmount,
+    chargeAmount,
     result: response.result,
     status: response.status,
     winAmount: response.winAmount,
