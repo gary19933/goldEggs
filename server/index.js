@@ -9,12 +9,12 @@ app.use(express.json());
 
 const PORT = Number(process.env.PORT) || 3001;
 const MAX_CRACKS = 12;
+const DEFAULT_BALANCE = 1000;
 const FORCE_BONUS = process.env.FORCE_BONUS === 'true';
 const FORCE_WIN = process.env.FORCE_WIN === 'true';
 const LOG_PATH = process.env.LOG_PATH || path.resolve('server', 'logs', 'transactions.jsonl');
 
-let mockBalance = 1000;
-const eggStates = new Map();
+const userStates = new Map();
 
 const buildStatus = (result) => {
   if (result === 'win') return 1;
@@ -28,12 +28,20 @@ const buildLevel = (tryIndex) => {
   return Math.min(Math.max(tryIndex + 1, 1), MAX_CRACKS);
 };
 
-const getEggState = (eggId) => {
-  if (!eggId) return null;
-  if (!eggStates.has(eggId)) {
-    eggStates.set(eggId, { hasCracked: false });
+const getUserState = (userId = '') => {
+  const key = userId || 'guest';
+  if (!userStates.has(key)) {
+    userStates.set(key, { balance: DEFAULT_BALANCE, eggs: new Map() });
   }
-  return eggStates.get(eggId);
+  return userStates.get(key);
+};
+
+const getEggState = (userState, eggId, eggType = 'gold') => {
+  if (!eggId) return null;
+  if (!userState.eggs.has(eggId)) {
+    userState.eggs.set(eggId, { hasCracked: false, tries: 0, eggType });
+  }
+  return userState.eggs.get(eggId);
 };
 
 const writeLog = async (entry) => {
@@ -47,12 +55,13 @@ const writeLog = async (entry) => {
 
 app.post('/game/init', (req, res) => {
   const { userId = '', lang = 'en' } = req.body || {};
+  const userState = getUserState(userId);
 
   res.json({
     apiStatus: 'ok',
     userId,
     lang,
-    balance: mockBalance,
+    balance: userState.balance,
     config: {
       eggs: [
         { id: 'gold', label: 'Gold Egg', bet: 100 },
@@ -60,6 +69,7 @@ app.post('/game/init', (req, res) => {
       ],
       currency: 'RM',
       maxStored: 3,
+      maxCracks: MAX_CRACKS,
     },
     serverTime: new Date().toISOString(),
   });
@@ -75,10 +85,17 @@ app.post('/game/action', (req, res) => {
     eggType = 'gold',
     tryIndex = 0,
   } = req.body || {};
-  const balanceBefore = mockBalance;
-  const level = buildLevel(tryIndex);
+  const userState = getUserState(userId);
+  const requestTryIndex = typeof tryIndex === 'number' ? tryIndex : 0;
+  const state = getEggState(userState, eggId, eggType) || {
+    hasCracked: false,
+    tries: 0,
+    eggType,
+  };
+  const serverTryIndex = state?.tries ?? 0;
+  const balanceBefore = userState.balance;
+  const level = buildLevel(serverTryIndex);
   const now = new Date().toISOString();
-  const state = getEggState(eggId) || { hasCracked: false };
 
   if (action === 'store') {
     const response = {
@@ -87,10 +104,10 @@ app.post('/game/action', (req, res) => {
       result: 'stored',
       winAmount: 0,
       chargeAmount: 0,
-      balance: mockBalance,
+      balance: userState.balance,
       eggId,
       eggType,
-      tryIndex,
+      tryIndex: serverTryIndex,
       level,
       bonus: false,
       serverTime: now,
@@ -102,14 +119,15 @@ app.post('/game/action', (req, res) => {
       action,
       eggId,
       eggType,
-      tryIndex,
+      requestTryIndex,
+      serverTryIndex,
       level,
       betAmount,
       result: response.result,
       status: response.status,
       winAmount: response.winAmount,
       balanceBefore,
-      balanceAfter: mockBalance,
+      balanceAfter: userState.balance,
       bonus: response.bonus,
     });
     return res.json(response);
@@ -117,10 +135,10 @@ app.post('/game/action', (req, res) => {
 
   if (action === 'cashout' || action === 'redeem') {
     const winAmount = betAmount;
-    mockBalance = Math.max(0, mockBalance + winAmount);
+    userState.balance = Math.max(0, userState.balance + winAmount);
     const result = action === 'redeem' ? 'redeemed' : 'cashout';
     if (eggId) {
-      eggStates.delete(eggId);
+      userState.eggs.delete(eggId);
     }
     const response = {
       apiStatus: 'ok',
@@ -128,11 +146,11 @@ app.post('/game/action', (req, res) => {
       result,
       winAmount,
       chargeAmount: 0,
-      balance: mockBalance,
+      balance: userState.balance,
       eggId,
       eggType,
-      tryIndex,
-      level,
+      tryIndex: 0,
+      level: buildLevel(0),
       bonus: false,
       serverTime: now,
     };
@@ -143,20 +161,21 @@ app.post('/game/action', (req, res) => {
       action,
       eggId,
       eggType,
-      tryIndex,
-      level,
+      requestTryIndex,
+      serverTryIndex,
+      level: response.level,
       betAmount,
       result: response.result,
       status: response.status,
       winAmount: response.winAmount,
       balanceBefore,
-      balanceAfter: mockBalance,
+      balanceAfter: userState.balance,
       bonus: response.bonus,
     });
     return res.json(response);
   }
 
-  const baseWinChance = 0.5 / Math.pow(2, Math.max(0, tryIndex));
+  const baseWinChance = 0.5 / Math.pow(2, Math.max(0, serverTryIndex));
   const bonusChance = Math.min(0.01, baseWinChance);
   const normalWinChance = Math.max(0, baseWinChance - bonusChance);
   const roll = Math.random();
@@ -164,14 +183,17 @@ app.post('/game/action', (req, res) => {
   const didBonus = FORCE_BONUS ? didWin : roll < bonusChance;
   const winAmount = didWin ? betAmount * (didBonus ? 2 : 1) : 0;
   const chargeAmount = state?.hasCracked ? betAmount : 0;
-  mockBalance = Math.max(0, mockBalance + winAmount - chargeAmount);
+  userState.balance = Math.max(0, userState.balance + winAmount - chargeAmount);
 
   const result = didWin ? 'win' : 'lose';
+  const nextTryIndex = didWin ? Math.min(serverTryIndex + 1, MAX_CRACKS) : 0;
   if (result === 'lose' && eggId) {
-    eggStates.delete(eggId);
+    userState.eggs.delete(eggId);
   } else if (eggId) {
     state.hasCracked = true;
-    eggStates.set(eggId, state);
+    state.tries = nextTryIndex;
+    state.eggType = eggType;
+    userState.eggs.set(eggId, state);
   }
   const response = {
     apiStatus: 'ok',
@@ -179,11 +201,11 @@ app.post('/game/action', (req, res) => {
     result,
     winAmount,
     chargeAmount,
-    balance: mockBalance,
+    balance: userState.balance,
     eggId,
     eggType,
-    tryIndex,
-    level,
+    tryIndex: nextTryIndex,
+    level: buildLevel(nextTryIndex),
     bonus: didBonus,
     serverTime: now,
   };
@@ -194,15 +216,16 @@ app.post('/game/action', (req, res) => {
     action,
     eggId,
     eggType,
-    tryIndex,
-    level,
+    requestTryIndex,
+    serverTryIndex,
+    level: response.level,
     betAmount,
     chargeAmount,
     result: response.result,
     status: response.status,
     winAmount: response.winAmount,
     balanceBefore,
-    balanceAfter: mockBalance,
+    balanceAfter: userState.balance,
     bonus: response.bonus,
   });
   return res.json(response);

@@ -175,7 +175,6 @@ export class AppGame {
     this._refreshStatusBadge();
     this._drawEgg(renderer.width / 2, renderer.height * 0.4);
     this._loadEggSprites();
-    this._handleBuy();
   }
 
   _setupHomeDom() {
@@ -671,12 +670,14 @@ export class AppGame {
     this._initTabEggs();
     this.currency = config.currency || this.currency || '';
     this.maxStored = typeof config.maxStored === 'number' ? config.maxStored : 3;
+    this.maxCracks = typeof config.maxCracks === 'number' ? config.maxCracks : this.maxCracks;
     this._renderHomeDom();
     this._renderPlay();
   }
 
   _initTabEggs() {
     this.boughtEggs = [];
+    this.storedEggs = [];
     this.activeTabId = 'gold';
     this.activeEggUid = null;
     this.activeSource = 'bought';
@@ -713,6 +714,7 @@ export class AppGame {
       eggId,
       bonus,
       chargeAmount = 0,
+      tryIndex,
     } = result;
     if (balance !== undefined) {
       this.updateBalance(balance);
@@ -777,7 +779,10 @@ export class AppGame {
       await this._playBreakAnimation();
 
       if (egg) {
-        egg.tries = Math.min(this.maxCracks, (egg.tries ?? 0) + 1);
+        const nextTries = typeof tryIndex === 'number'
+          ? tryIndex
+          : Math.min(this.maxCracks, (egg.tries ?? 0) + 1);
+        egg.tries = Math.min(this.maxCracks, Math.max(0, nextTries));
       }
 
       if (outcome === 'win') {
