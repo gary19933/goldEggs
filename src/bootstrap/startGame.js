@@ -108,7 +108,8 @@ export async function startGame(options = {}) {
         typeof actionPayload === 'number' ? actionPayload : actionPayload?.betAmount;
       const eggId = typeof actionPayload === 'object' ? actionPayload?.eggId : undefined;
       const action =
-        (typeof actionPayload === 'object' && actionPayload?.action) || 'spin';
+        (typeof actionPayload === 'object' && actionPayload?.action) || 'crack';
+      const eggType = typeof actionPayload === 'object' ? actionPayload?.eggType : undefined;
       const tryIndex =
         typeof actionPayload === 'object' && typeof actionPayload.tryIndex === 'number'
           ? actionPayload.tryIndex
@@ -120,6 +121,7 @@ export async function startGame(options = {}) {
         action,
         betAmount,
         eggId,
+        eggType,
         tryIndex,
       });
 
@@ -129,6 +131,7 @@ export async function startGame(options = {}) {
           userId,
           ...result,
           eggId: eggId ?? result?.eggId,
+          eggType: eggType ?? result?.eggType,
         });
       }
     } catch (error) {

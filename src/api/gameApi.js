@@ -57,7 +57,6 @@ function mockInit(payload = {}) {
   const userState = getMockUserState(userId);
   return Promise.resolve({
     apiStatus: 'ok',
-    status: 'ok',
     userId,
     balance: userState.balance,
     config: {
@@ -70,6 +69,7 @@ function mockInit(payload = {}) {
       maxCracks: MAX_CRACKS,
     },
     lang,
+    serverTime: new Date().toISOString(),
     mock: true,
   });
 }
@@ -97,7 +97,7 @@ function mockAction(payload = {}) {
   if (action === 'store') {
     return Promise.resolve({
       apiStatus: 'ok',
-      status: 'ok',
+      status: null,
       result: 'stored',
       winAmount: 0,
       chargeAmount: 0,
@@ -106,6 +106,7 @@ function mockAction(payload = {}) {
       eggType,
       tryIndex: serverTryIndex,
       level: Math.min(Math.max(serverTryIndex + 1, 1), MAX_CRACKS),
+      serverTime: new Date().toISOString(),
     });
   }
 
@@ -117,7 +118,7 @@ function mockAction(payload = {}) {
     }
     return Promise.resolve({
       apiStatus: 'ok',
-      status: 'ok',
+      status: 2,
       result: action === 'redeem' ? 'redeemed' : 'cashout',
       winAmount,
       chargeAmount: 0,
@@ -126,6 +127,7 @@ function mockAction(payload = {}) {
       eggType,
       tryIndex: 0,
       level: 1,
+      serverTime: new Date().toISOString(),
     });
   }
 
@@ -150,7 +152,7 @@ function mockAction(payload = {}) {
 
   return Promise.resolve({
     apiStatus: 'ok',
-    status: 'ok',
+    status: didWin ? 1 : 0,
     result: didWin ? 'win' : 'lose',
     winAmount,
     chargeAmount,
@@ -160,6 +162,7 @@ function mockAction(payload = {}) {
     eggType,
     tryIndex: nextTryIndex,
     level: Math.min(Math.max(nextTryIndex + 1, 1), MAX_CRACKS),
+    serverTime: new Date().toISOString(),
     mock: true,
   });
 }

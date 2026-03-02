@@ -31,6 +31,10 @@ export class AppGame {
     this.storedEggs = [];
     this.maxStored = 3;
     this.currency = '';
+    this.eggCatalog = [
+      { id: 'gold', label: 'Gold Egg', bet: 100 },
+      { id: 'premium', label: 'Premium Egg', bet: 1000 },
+    ];
 
     this.activeEggUid = null;
     this.activeSource = 'bought';
@@ -376,6 +380,18 @@ export class AppGame {
       zIndex: '9',
     });
 
+    this.containerEl.appendChild(tabs);
+    this.tabsRoot = tabs;
+    this.tabButtons = {};
+    this._renderEggTabs();
+    this._refreshEggTabs();
+  }
+
+  _renderEggTabs() {
+    if (!this.tabsRoot) return;
+    this.tabsRoot.innerHTML = '';
+    this.tabButtons = {};
+
     const makeTab = (id, label) => {
       const btn = document.createElement('button');
       btn.textContent = label;
@@ -393,16 +409,21 @@ export class AppGame {
       return btn;
     };
 
-    const goldTab = makeTab('gold', 'Gold - RM100');
-    const premiumTab = makeTab('premium', 'Premium - RM1000');
+    const templates = Array.isArray(this.eggCatalog) ? this.eggCatalog : [];
+    templates.forEach((template) => {
+      if (!template?.id) return;
+      const label = this._formatTabLabel(template);
+      const button = makeTab(template.id, label);
+      this.tabsRoot.appendChild(button);
+      this.tabButtons[template.id] = button;
+    });
+  }
 
-    tabs.appendChild(goldTab);
-    tabs.appendChild(premiumTab);
-
-    this.containerEl.appendChild(tabs);
-    this.tabsRoot = tabs;
-    this.tabButtons = { gold: goldTab, premium: premiumTab };
-    this._refreshEggTabs();
+  _formatTabLabel(template) {
+    const amount = typeof template?.bet === 'number' ? template.bet : 0;
+    const label = template?.label || template?.id || 'Egg';
+    const currency = this.currency || 'RM';
+    return `${label} - ${currency}${amount}`;
   }
 
   _setupStoredBar() {
@@ -667,10 +688,24 @@ export class AppGame {
   // endregion setup -------------------------------------------------------------
 
   setConfig(config = {}) {
-    this._initTabEggs();
     this.currency = config.currency || this.currency || '';
+    if (Array.isArray(config.eggs) && config.eggs.length > 0) {
+      const normalized = config.eggs
+        .map((egg) => ({
+          id: typeof egg?.id === 'string' ? egg.id : '',
+          label: typeof egg?.label === 'string' ? egg.label : (typeof egg?.id === 'string' ? egg.id : 'Egg'),
+          bet: Number(egg?.bet) || 0,
+        }))
+        .filter((egg) => egg.id);
+      if (normalized.length > 0) {
+        this.eggCatalog = normalized;
+      }
+    }
+    this._initTabEggs();
     this.maxStored = typeof config.maxStored === 'number' ? config.maxStored : 3;
     this.maxCracks = typeof config.maxCracks === 'number' ? config.maxCracks : this.maxCracks;
+    this._renderEggTabs();
+    this._refreshEggTabs();
     this._renderHomeDom();
     this._renderPlay();
   }
@@ -678,7 +713,8 @@ export class AppGame {
   _initTabEggs() {
     this.boughtEggs = [];
     this.storedEggs = [];
-    this.activeTabId = 'gold';
+    const hasActiveTab = this.eggCatalog.some((egg) => egg.id === this.activeTabId);
+    this.activeTabId = hasActiveTab ? this.activeTabId : (this.eggCatalog[0]?.id ?? 'gold');
     this.activeEggUid = null;
     this.activeSource = 'bought';
     this._refreshEggTabs();
@@ -839,6 +875,7 @@ export class AppGame {
       action: 'crack',
       betAmount: egg.bet,
       eggId: egg.uid,
+      eggType: egg.id,
       tryIndex: egg.tries ?? 0,
     });
   }
@@ -854,6 +891,7 @@ export class AppGame {
       action: 'cashout',
       betAmount: egg.bet,
       eggId: egg.uid,
+      eggType: egg.id,
       tryIndex: egg.tries ?? 0,
     });
   }
@@ -959,10 +997,10 @@ export class AppGame {
   }
 
   _getSelectedEggTemplate() {
-    if (this.activeTabId === 'premium') {
-      return { id: 'premium', label: 'Premium Egg', bet: 1000 };
-    }
-    return { id: 'gold', label: 'Gold Egg', bet: 100 };
+    const matched = this.eggCatalog.find((egg) => egg.id === this.activeTabId);
+    if (matched) return { ...matched };
+    const fallback = this.eggCatalog[0] || { id: 'gold', label: 'Gold Egg', bet: 100 };
+    return { ...fallback };
   }
 
   _selectEggTab(tabId) {
