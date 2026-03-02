@@ -171,10 +171,11 @@ export class AppGame {
     this.backButton.visible = false;
     this.playContainer.addChild(this.backButton);
 
-    this._toggleMode('home');
+    this._toggleMode('play');
     this._refreshStatusBadge();
     this._drawEgg(renderer.width / 2, renderer.height * 0.4);
     this._loadEggSprites();
+    this._handleBuy();
   }
 
   _setupHomeDom() {
@@ -1067,7 +1068,7 @@ export class AppGame {
       egg && typeof displayAmount === 'number' && displayAmount > 0 ? ` RM${displayAmount}` : '';
     const label = egg ? `${egg.label ?? egg.id ?? 'Egg'}${pricePart}` : '';
     this.eggLabel.text = label;
-    this.eggLabel.position.set(width / 2, height * 0.8);
+    this.eggLabel.position.set(width / 2, height * 0.85);
 
     this.triesText.text = '';
 
@@ -1548,11 +1549,21 @@ export class AppGame {
   }
 
   _getEggSpriteUrls(egg, level) {
-    const type = egg?.id === 'premium' ? 'premium' : 'gold';
+    const type = egg?.id === 'premium' ? 'premium' : 'normal';
     const safeLevel = Math.max(1, Math.min(level || 1, this.maxCracks));
+    const normalCrackName = (lvl) => {
+      if (lvl === 1) return 'gold-crak-1.png';
+      if (lvl === 3) return 'golden-crack-3.png';
+      return `gold-crack-${lvl}.png`;
+    };
+    const normalFullName = (lvl) => `gold-${lvl}.png`;
+    const premiumFullName = (lvl) => `diamond-${lvl}.png`;
+    const premiumCrackName = (lvl) => `diamond-crack-${lvl}.png`;
+    const fullName = type === 'premium' ? premiumFullName(safeLevel) : normalFullName(safeLevel);
+    const crackName = type === 'premium' ? premiumCrackName(safeLevel) : normalCrackName(safeLevel);
     return {
-      fullUrl: `/assets/${type}_egg${safeLevel}.png`,
-      brokenUrl: `/assets/${type}_egg_broken${safeLevel}.png`,
+      fullUrl: `/assets/${type}/full/${fullName}`,
+      brokenUrl: `/assets/${type}/crack/${crackName}`,
       key: `${type}-${safeLevel}`,
     };
   }
@@ -2232,7 +2243,7 @@ export class AppGame {
     const gap = 12;
     const actionH = this.actionButton.height || 64;
     const marginBottom = 24;
-    const rowYOffset = 20;
+    const rowYOffset = 50;
     const baseRowY = Math.min(height * 0.82, height - actionH - marginBottom);
     const rowY = baseRowY + rowYOffset;
 
