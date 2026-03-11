@@ -174,6 +174,7 @@ export class AppGame {
     }, { width: 64, height: 46, color: 0x4e342e, fontSize: 22 });
     this.backButton.visible = false;
     this.playContainer.addChild(this.backButton);
+    this._updatePrimaryButtonSkins();
 
     this._toggleMode('play');
     this._refreshStatusBadge();
@@ -645,8 +646,10 @@ export class AppGame {
   _updateStoredBarLayout() {
     if (!this.storedBarRoot || !this.storedSlots) return;
     const viewportWidth = window.innerWidth || 0;
+    const viewportHeight = window.innerHeight || 0;
     const isTablet = viewportWidth > 520 && viewportWidth <= 920;
     const isMobile = viewportWidth <= 520;
+    const isLargeDesktop = viewportWidth >= 1360 || viewportHeight >= 860;
     const slotWidth = isMobile ? 100 : isTablet ? 120 : 150;
     const slotMinHeight = isMobile ? 46 : isTablet ? 50 : 54;
     const fontSize = isMobile ? 11 : isTablet ? 12 : 13;
@@ -654,9 +657,12 @@ export class AppGame {
     const gap = isMobile ? '8px' : isTablet ? '10px' : '12px';
     this.storedBarRoot.style.padding = padding;
     this.storedBarRoot.style.gap = gap;
-    const top = isMobile ? '170px' : isTablet ? '170px' : '150px';
+    const top = isMobile ? '170px' : isTablet ? '170px' : isLargeDesktop ? '142px' : '150px';
     this.storedBarRoot.style.maxWidth = 'none';
     this.storedBarRoot.style.top = top;
+    if (this.tabsRoot) {
+      this.tabsRoot.style.top = isMobile ? '92px' : isLargeDesktop ? '84px' : '92px';
+    }
 
     this.storedSlots.forEach((slot) => {
       slot.style.width = `${slotWidth}px`;
@@ -683,6 +689,83 @@ export class AppGame {
     if (this.modalRoot) {
       this.modalRoot.style.display = 'none';
     }
+  }
+
+  _getBackgroundImageForTab(tabId) {
+    const normalizedId = typeof tabId === 'string' ? tabId.toLowerCase() : '';
+    if (normalizedId === 'premium') {
+      return '/assets/interface/premium/premium-bg.png';
+    }
+    return '/assets/interface/gold/gold-bg.png';
+  }
+
+  _applyPageBackground(tabId = this.activeTabId) {
+    if (!this.containerEl) return;
+    const backgroundUrl = this._getBackgroundImageForTab(tabId);
+    this.containerEl.style.backgroundImage = `url("${backgroundUrl}")`;
+    this.containerEl.style.backgroundPosition = 'center';
+    this.containerEl.style.backgroundSize = 'cover';
+    this.containerEl.style.backgroundRepeat = 'no-repeat';
+  }
+
+  _getButtonImageForType(eggType) {
+    const normalizedId = typeof eggType === 'string' ? eggType.toLowerCase() : '';
+    if (normalizedId === 'premium') {
+      return '/assets/interface/premium/premium-button.png';
+    }
+    return '/assets/interface/gold/gold-button.png';
+  }
+
+  _setButtonTexture(button, texture) {
+    if (!button || !button._bgGraphics || !button._bgSprite) return;
+    const targetWidth = button._baseWidth ?? button.width;
+    const targetHeight = button._baseHeight ?? button.height;
+
+    if (texture) {
+      button._bgGraphics.visible = false;
+      button._bgSprite.texture = texture;
+      button._bgSprite.width = targetWidth;
+      button._bgSprite.height = targetHeight;
+      button._bgSprite.visible = true;
+      if (button._glow) {
+        button._glow.visible = false;
+      }
+      return;
+    }
+
+    button._bgSprite.visible = false;
+    button._bgGraphics.visible = true;
+    if (button._glow) {
+      button._glow.visible = true;
+    }
+  }
+
+  async _applyButtonSkin(button, eggType) {
+    if (!button) return;
+    const normalizedType = typeof eggType === 'string' ? eggType.toLowerCase() : '';
+    const safeType = normalizedType === 'premium' ? 'premium' : 'gold';
+    if (button._skinType === safeType && button._bgSprite?.visible) return;
+
+    const requestId = (button._skinRequestId ?? 0) + 1;
+    button._skinRequestId = requestId;
+    button._skinType = safeType;
+
+    const imageUrl = this._getButtonImageForType(safeType);
+    try {
+      const texture = await Assets.load(imageUrl);
+      if (button._skinRequestId !== requestId) return;
+      this._setButtonTexture(button, texture);
+    } catch (error) {
+      if (button._skinRequestId !== requestId) return;
+      this._setButtonTexture(button, null);
+    }
+  }
+
+  _updatePrimaryButtonSkins(activeEgg = this._getActiveEgg()) {
+    const crackType = activeEgg?.id ?? this.activeTabId;
+    const buyType = this._getSelectedEggTemplate()?.id ?? this.activeTabId;
+    void this._applyButtonSkin(this.actionButton, crackType);
+    void this._applyButtonSkin(this.buyButton, buyType);
   }
 
   // endregion setup -------------------------------------------------------------
@@ -717,6 +800,8 @@ export class AppGame {
     this.activeTabId = hasActiveTab ? this.activeTabId : (this.eggCatalog[0]?.id ?? 'gold');
     this.activeEggUid = null;
     this.activeSource = 'bought';
+    this._applyPageBackground(this.activeTabId);
+    this._updatePrimaryButtonSkins();
     this._refreshEggTabs();
   }
 
@@ -1020,6 +1105,8 @@ export class AppGame {
       this._renderStoredBar();
     }
     this.activeTabId = tabId;
+    this._applyPageBackground(this.activeTabId);
+    this._updatePrimaryButtonSkins();
     this._refreshEggTabs();
     this._updateBuyButtonLabel();
     this._renderPlay();
@@ -1030,6 +1117,7 @@ export class AppGame {
     this.activeEggUid = egg.uid;
     this.activeSource = source;
     this.isCracked = false;
+    this._applyPageBackground(egg.id ?? this.activeTabId);
     this._drawCrackOverlay();
     this._toggleMode('play');
     this._renderPlay();
@@ -1102,8 +1190,17 @@ export class AppGame {
   _renderPlay() {
     const width = this.app?.renderer?.width || 800;
     const height = this.app?.renderer?.height || 600;
+    const isLargeDesktop = width >= 1360 || height >= 860;
+    const eggCenterY = isLargeDesktop
+      ? Math.max(320, Math.min(height * 0.48, height - 350))
+      : Math.max(300, Math.min(height * 0.55, height - 320));
+    const labelY = Math.min(eggCenterY + 240, height - 150);
+    this._playLayout = {
+      actionButtonY: Math.min(eggCenterY + 275, height - 100),
+    };
     const egg = this._getActiveEgg();
     const hasEgg = Boolean(egg);
+    this._applyPageBackground(egg?.id ?? this.activeTabId);
     const displayAmount = egg && typeof egg.lastWinAmount === 'number' && egg.lastWinAmount > 0
       ? egg.lastWinAmount
       : null;
@@ -1111,7 +1208,7 @@ export class AppGame {
       egg && typeof displayAmount === 'number' && displayAmount > 0 ? ` RM${displayAmount}` : '';
     const label = egg ? `${egg.label ?? egg.id ?? 'Egg'}${pricePart}` : '';
     this.eggLabel.text = label;
-    this.eggLabel.position.set(width / 2, height * 0.85);
+    this.eggLabel.position.set(width / 2, labelY);
 
     this.triesText.text = '';
 
@@ -1119,10 +1216,11 @@ export class AppGame {
       this.isCracked = false;
       this.lastBonus = false;
     }
+    this._updatePrimaryButtonSkins(egg);
     if (hasEgg) {
       this._ensureEggSprites(egg);
     }
-    this._drawEgg(width / 2, height * 0.55);
+    this._drawEgg(width / 2, eggCenterY);
     this._drawCrackOverlay();
     this.egg.visible = hasEgg;
     this.eggLabel.visible = hasEgg;
@@ -1145,9 +1243,11 @@ export class AppGame {
     if (this.buyButton) {
       this._updateBuyButtonLabel();
       this.buyButton.visible = !hasEgg;
+      const buyWidth = this.buyButton._baseWidth ?? this.buyButton.width;
+      const buyHeight = this.buyButton._baseHeight ?? this.buyButton.height;
       this.buyButton.position.set(
-        width / 2 - this.buyButton.width / 2,
-        height / 2 - this.buyButton.height / 2,
+        width / 2 - buyWidth / 2,
+        height / 2 - buyHeight / 2,
       );
     }
     this._updateActionButtons();
@@ -1161,7 +1261,9 @@ export class AppGame {
     const template = this._getSelectedEggTemplate();
     const amount = template.bet ?? 0;
     this.buyButton._labelText.text = `Buy ${template.label} RM${amount}`;
-    this.buyButton._labelText.position.set(this.buyButton.width / 2, this.buyButton.height / 2);
+    const buyWidth = this.buyButton._baseWidth ?? this.buyButton.width;
+    const buyHeight = this.buyButton._baseHeight ?? this.buyButton.height;
+    this.buyButton._labelText.position.set(buyWidth / 2, buyHeight / 2);
   }
 
   _buildGroupedGrid(eggs, onCrack, { emptyText, columns, horizontalOnMobile } = {}) {
@@ -1511,6 +1613,10 @@ export class AppGame {
     bg.beginFill(color);
     bg.drawRoundedRect(0, 0, width, height, 14);
     bg.endFill();
+    const bgSprite = new Sprite();
+    bgSprite.visible = false;
+    bgSprite.width = width;
+    bgSprite.height = height;
     const glow = new Graphics();
     glow.lineStyle(3, 0xfff176);
     glow.drawRoundedRect(-2, -2, width + 4, height + 4, 16);
@@ -1524,11 +1630,16 @@ export class AppGame {
     text.anchor.set(0.5);
     text.position.set(width / 2, height / 2);
 
-    container.addChild(bg, glow, text);
+    container.addChild(bg, bgSprite, glow, text);
     container.eventMode = 'static';
     container.cursor = 'pointer';
     container.on('pointertap', onPress);
     container._labelText = text;
+    container._bgGraphics = bg;
+    container._bgSprite = bgSprite;
+    container._glow = glow;
+    container._baseWidth = width;
+    container._baseHeight = height;
 
     container.width = width;
     container.height = height;
@@ -1538,9 +1649,6 @@ export class AppGame {
   _drawBackdrop(width, height) {
     this.backdrop.clear();
     this.backdrop.removeChildren();
-    this.backdrop.beginFill(0x2b0d0d);
-    this.backdrop.drawRect(0, 0, width, height);
-    this.backdrop.endFill();
 
     const frame = new Graphics();
     frame.lineStyle(6, 0xffd54f, 1);
@@ -2284,11 +2392,14 @@ export class AppGame {
   _positionActionButtons(width, height) {
     if (!this.actionButton) return;
     const gap = 12;
-    const actionH = this.actionButton.height || 64;
+    const actionH = this.actionButton._baseHeight ?? this.actionButton.height ?? 64;
     const marginBottom = 24;
-    const rowYOffset = 50;
-    const baseRowY = Math.min(height * 0.82, height - actionH - marginBottom);
-    const rowY = baseRowY + rowYOffset;
+    const fallbackRowY = Math.min(height * 0.82, height - actionH - marginBottom);
+    const preferredRowY = this._playLayout?.actionButtonY;
+    const rowY = Math.min(
+      typeof preferredRowY === 'number' ? preferredRowY : fallbackRowY,
+      height - actionH - marginBottom,
+    );
 
     const leftBtn = this.actionButton.visible !== false ? this.actionButton : null;
     const rightBtn = null;

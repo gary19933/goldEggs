@@ -5,9 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Golden Eggs - PixiJS</title>
     <style>
-      :root {
-        background: radial-gradient(120% 120% at 50% 0%, #2d0d0d 0%, #120606 65%, #0a0404 100%);
-      }
       *, *::before, *::after {
         box-sizing: border-box;
       }
@@ -19,6 +16,7 @@
       }
       body {
         display: flex;
+        background-color: #120606;
       }
       #game-root {
         flex: 1;
@@ -27,7 +25,10 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: linear-gradient(160deg, rgba(255, 215, 128, 0.08), rgba(255, 111, 97, 0.05));
+        background-image: url('/assets/interface/gold/gold-bg.png');
+        background-position: center;
+        background-size: cover;
+        background-repeat: no-repeat;
         overflow: hidden;
       }
       #game-root canvas {

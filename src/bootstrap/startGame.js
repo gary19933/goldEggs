@@ -52,6 +52,7 @@ export async function startGame(options = {}) {
     width: targetWidth,
     height: targetHeight,
     background: '#1a0a0a',
+    backgroundAlpha: 0,
     antialias: true,
   });
 
