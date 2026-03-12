@@ -120,6 +120,11 @@ export class AppGame {
     this.fullEggSprite = null;
     this.brokenEggSprite = null;
 
+    this.eggLabelBg = new Sprite();
+    this.eggLabelBg.anchor.set(0.5, 0.5);
+    this.eggLabelBg.visible = false;
+    this.playContainer.addChild(this.eggLabelBg);
+
     this.eggLabel = new Text('', {
       fontFamily: 'Segoe UI, Arial, sans-serif',
       fontSize: 18,
@@ -374,10 +379,10 @@ export class AppGame {
       transform: 'translateX(-50%)',
       display: 'flex',
       gap: '10px',
-      padding: '6px',
-      background: 'rgba(28,14,14,0.85)',
-      border: '1px solid rgba(255, 213, 79, 0.4)',
-      borderRadius: '14px',
+      padding: '0',
+      background: 'transparent',
+      border: 'none',
+      borderRadius: '0',
       zIndex: '9',
     });
 
@@ -397,14 +402,20 @@ export class AppGame {
       const btn = document.createElement('button');
       btn.textContent = label;
       Object.assign(btn.style, {
-        padding: '8px 14px',
-        background: 'rgba(45,13,13,0.9)',
-        color: '#ffd54f',
+        padding: '8px 18px',
+        backgroundColor: 'transparent',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 100%',
+        color: '#fff4cf',
         border: '2px solid transparent',
         borderRadius: '12px',
         fontWeight: '800',
         cursor: 'pointer',
-        minWidth: '140px',
+        minWidth: id === 'premium' ? '250px' : '220px',
+        minHeight: '46px',
+        boxShadow: 'none',
+        textShadow: '0 1px 2px rgba(0,0,0,0.5)',
       });
       btn.onclick = () => this._selectEggTab(id);
       return btn;
@@ -427,6 +438,18 @@ export class AppGame {
     return `${label} - ${currency}${amount}`;
   }
 
+  _getTabImage(tabId, isActive) {
+    const normalizedId = typeof tabId === 'string' ? tabId.toLowerCase() : '';
+    if (normalizedId === 'premium') {
+      return isActive
+        ? '/assets/interface/premium/main-button.png'
+        : '/assets/interface/premium/main-button-hover-premium.png';
+    }
+    return isActive
+      ? '/assets/interface/gold/main-button-hover-gold.png'
+      : '/assets/interface/gold/main-button-hover-premium.png';
+  }
+
   _setupStoredBar() {
     if (!this.containerEl) return;
     if (this.storedBarRoot) return;
@@ -441,8 +464,11 @@ export class AppGame {
       display: 'none',
       gap: '12px',
       padding: '10px 12px',
-      background: 'rgba(20,8,8,0.85)',
-      border: '1px solid rgba(255, 213, 79, 0.35)',
+      backgroundImage: 'url("/assets/interface/store-bg.png")',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+      backgroundSize: '100% 100%',
+      border: 'none',
       borderRadius: '14px',
       zIndex: '9',
       width: 'fit-content',
@@ -455,7 +481,7 @@ export class AppGame {
         width: '150px',
         minHeight: '54px',
         borderRadius: '12px',
-        border: '1px dashed rgba(255, 213, 79, 0.4)',
+        border: 'none',
         color: '#ffe082',
         fontWeight: '700',
         fontSize: '13px',
@@ -465,7 +491,10 @@ export class AppGame {
         justifyContent: 'center',
         padding: '6px 8px',
         textAlign: 'center',
-        background: 'rgba(45,13,13,0.7)',
+        backgroundImage: 'url("/assets/interface/empty-1.png")',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 100%',
       });
       bar.appendChild(slot);
       slots.push(slot);
@@ -484,13 +513,15 @@ export class AppGame {
     this.storedSlots.forEach((slot, index) => {
       const egg = eggs[index];
       slot.innerHTML = '';
+      slot.style.backgroundImage = 'url("/assets/interface/empty-1.png")';
+      slot.style.borderStyle = 'none';
+      slot.style.cursor = 'default';
+      slot.onclick = null;
       if (!egg) {
         const empty = document.createElement('div');
         empty.textContent = 'Empty';
+        empty.style.color = '#fffaf0';
         slot.appendChild(empty);
-        slot.style.borderStyle = 'dashed';
-        slot.style.cursor = 'default';
-        slot.onclick = null;
         return;
       }
       const label = document.createElement('div');
@@ -498,25 +529,32 @@ export class AppGame {
       label.textContent = hasWon
         ? `${egg.label ?? egg.id ?? 'Egg'} RM${egg.lastWinAmount}`
         : `${egg.label ?? egg.id ?? 'Egg'}`;
+      label.style.color = '#fffaf0';
       label.style.marginBottom = '6px';
 
       const isActive = egg.uid === this.activeEggUid;
       const isMaxed = egg.isMaxed === true;
-      slot.style.background = isActive ? 'rgba(90,40,10,0.95)' : 'rgba(45,13,13,0.7)';
-      slot.style.borderColor = isActive ? '#ffd54f' : 'rgba(255, 213, 79, 0.4)';
+      slot.style.backgroundImage = isActive
+        ? 'url("/assets/interface/empty-1-hover.png")'
+        : 'url("/assets/interface/empty-1.png")';
 
       slot.appendChild(label);
       if (egg.uid !== this.activeEggUid && !isMaxed) {
         const btn = document.createElement('button');
         btn.textContent = 'Retrieve';
         Object.assign(btn.style, {
-          padding: '4px 8px',
-          background: '#5d4037',
-          color: '#ffe082',
+          width: '72px',
+          height: '20px',
+          padding: '0',
+          backgroundColor: 'transparent',
+          backgroundImage: 'url("/assets/interface/retrieve.png")',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: '100% 100%',
+          color: '#161616',
           border: 'none',
-          borderRadius: '8px',
           fontWeight: '700',
-          fontSize: '11px',
+          fontSize: '9px',
           cursor: 'pointer',
         });
         btn.onclick = () => {
@@ -525,9 +563,6 @@ export class AppGame {
         };
         slot.appendChild(btn);
       }
-      slot.style.borderStyle = 'solid';
-      slot.style.cursor = 'default';
-      slot.onclick = null;
     });
   }
 
@@ -536,9 +571,12 @@ export class AppGame {
     const hasActiveEgg = Boolean(this.activeEggUid);
     Object.entries(this.tabButtons).forEach(([id, btn]) => {
       const active = !hasActiveEgg && id === this.activeTabId;
-      btn.style.borderColor = active ? '#ffd54f' : 'transparent';
-      btn.style.background = active ? 'rgba(90,40,10,0.95)' : 'rgba(45,13,13,0.9)';
-      btn.style.color = active ? '#fff0b3' : '#ffd54f';
+      btn.style.backgroundImage = `url("${this._getTabImage(id, active)}")`;
+      btn.style.borderColor = 'transparent';
+      btn.style.boxShadow = 'none';
+      btn.style.color = active ? '#fffaf0' : '#161616';
+      btn.style.opacity = active ? '1' : '0.96';
+      btn.style.textShadow = active ? '0 1px 2px rgba(0,0,0,0.5)' : 'none';
     });
   }
 
@@ -716,6 +754,14 @@ export class AppGame {
     return '/assets/interface/gold/gold-button.png';
   }
 
+  _getLabelImageForType(eggType) {
+    const normalizedId = typeof eggType === 'string' ? eggType.toLowerCase() : '';
+    if (normalizedId === 'premium') {
+      return '/assets/interface/premium/premium-list-name.png';
+    }
+    return '/assets/interface/gold/gold-list-name.png';
+  }
+
   _setButtonTexture(button, texture) {
     if (!button || !button._bgGraphics || !button._bgSprite) return;
     const targetWidth = button._baseWidth ?? button.width;
@@ -759,6 +805,44 @@ export class AppGame {
       if (button._skinRequestId !== requestId) return;
       this._setButtonTexture(button, null);
     }
+  }
+
+  async _ensureEggLabelSkin(eggType) {
+    if (!this.eggLabelBg) return;
+    const normalizedType = typeof eggType === 'string' ? eggType.toLowerCase() : '';
+    const safeType = normalizedType === 'premium' ? 'premium' : 'gold';
+    if (this.eggLabelBg._skinType === safeType && this.eggLabelBg.texture) return;
+
+    const requestId = (this.eggLabelBg._skinRequestId ?? 0) + 1;
+    this.eggLabelBg._skinRequestId = requestId;
+    this.eggLabelBg._skinType = safeType;
+
+    try {
+      const texture = await Assets.load(this._getLabelImageForType(safeType));
+      if (this.eggLabelBg._skinRequestId !== requestId) return;
+      this.eggLabelBg.texture = texture;
+      const activeEgg = this._getActiveEgg();
+      if ((activeEgg?.id ?? this.activeTabId) === safeType) {
+        this._layoutEggLabelBackground(this.app?.renderer?.width || 800, this._playLayout?.labelY);
+        this.eggLabelBg.visible = !!activeEgg;
+      }
+    } catch (error) {
+      if (this.eggLabelBg._skinRequestId !== requestId) return;
+      this.eggLabelBg.texture = null;
+      this.eggLabelBg.visible = false;
+    }
+  }
+
+  _layoutEggLabelBackground(width, labelY) {
+    if (!this.eggLabelBg?.texture || typeof labelY !== 'number') {
+      if (this.eggLabelBg) this.eggLabelBg.visible = false;
+      return;
+    }
+    const targetWidth = Math.min(320, Math.max(220, width * 0.26));
+    const targetHeight = targetWidth * (this.eggLabelBg.texture.height / this.eggLabelBg.texture.width);
+    this.eggLabelBg.width = targetWidth;
+    this.eggLabelBg.height = targetHeight;
+    this.eggLabelBg.position.set(width / 2, labelY);
   }
 
   _updatePrimaryButtonSkins(activeEgg = this._getActiveEgg()) {
@@ -1203,6 +1287,12 @@ export class AppGame {
     const label = egg ? `${egg.label ?? egg.id ?? 'Egg'}${pricePart}` : '';
     this.eggLabel.text = label;
     this.eggLabel.position.set(width / 2, playMetrics.labelY);
+    if (egg) {
+      void this._ensureEggLabelSkin(egg.id);
+      this._layoutEggLabelBackground(width, playMetrics.labelY);
+    } else if (this.eggLabelBg) {
+      this.eggLabelBg.visible = false;
+    }
 
     this.triesText.text = '';
 
@@ -1217,6 +1307,9 @@ export class AppGame {
     this._drawEgg(width / 2, playMetrics.eggCenterY, playMetrics.eggWidth, playMetrics.eggHeight);
     this._drawCrackOverlay();
     this.egg.visible = hasEgg;
+    if (this.eggLabelBg) {
+      this.eggLabelBg.visible = hasEgg && !!this.eggLabelBg.texture;
+    }
     this.eggLabel.visible = hasEgg;
     this.crackOverlay.visible = hasEgg && this.isCracked;
     if (this.eggSpriteContainer) {
