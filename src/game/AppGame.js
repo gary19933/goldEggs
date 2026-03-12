@@ -158,13 +158,13 @@ export class AppGame {
     this.actionButton = this._createButton('Crack Egg', () => {
       if (this.isLocked) return;
       this._handleCrack();
-    });
+    }, { width: 300, height: 78, fontSize: 22, textOffsetY: -3 });
     this.playContainer.addChild(this.actionButton);
 
     this.buyButton = this._createButton('Buy Egg', () => {
       if (this.isLocked) return;
       this._handleBuy();
-    }, { width: 240, height: 64, color: 0x6d4c41 });
+    }, { width: 380, height: 90, color: 0x6d4c41, fontSize: 22 });
     this.playContainer.addChild(this.buyButton);
 
     this.cashoutButton = this._createButton('Cashout', () => {
@@ -263,17 +263,6 @@ export class AppGame {
       alignItems: 'center',
       gap: '8px',
     });
-    const logo = document.createElement('div');
-    logo.textContent = 'Golden Eggs';
-    Object.assign(logo.style, {
-      fontSize: '22px',
-      fontWeight: '900',
-      color: '#ffd54f',
-      textTransform: 'uppercase',
-      letterSpacing: '1px',
-      textAlign: 'center',
-    });
-
     const buttonWrap = document.createElement('div');
     Object.assign(buttonWrap.style, {
       display: 'flex',
@@ -362,7 +351,6 @@ export class AppGame {
     topRow.appendChild(leftSlot);
     topRow.appendChild(buttonWrap);
     bar.appendChild(topRow);
-    bar.appendChild(logo);
     this.containerEl.appendChild(bar);
     this.soundPanel = panel;
   }
@@ -429,6 +417,7 @@ export class AppGame {
       this.tabsRoot.appendChild(button);
       this.tabButtons[template.id] = button;
     });
+    this._updateTabLayout();
   }
 
   _formatTabLabel(template) {
@@ -701,11 +690,55 @@ export class AppGame {
     if (this.tabsRoot) {
       this.tabsRoot.style.top = isMobile ? '92px' : isLargeDesktop ? '84px' : '92px';
     }
+    this._updateTabLayout();
 
     this.storedSlots.forEach((slot) => {
       slot.style.width = `${slotWidth}px`;
       slot.style.minHeight = `${slotMinHeight}px`;
       slot.style.fontSize = `${fontSize}px`;
+    });
+  }
+
+  _updateTabLayout() {
+    if (!this.tabsRoot || !this.tabButtons) return;
+    const viewportWidth = window.innerWidth || 0;
+    const isMobile = viewportWidth <= 520;
+    const isTablet = viewportWidth > 520 && viewportWidth <= 920;
+
+    if (isMobile) {
+      this.tabsRoot.style.left = '12px';
+      this.tabsRoot.style.right = '12px';
+      this.tabsRoot.style.transform = 'none';
+      this.tabsRoot.style.width = 'auto';
+      this.tabsRoot.style.gap = '8px';
+    } else {
+      this.tabsRoot.style.left = '50%';
+      this.tabsRoot.style.right = 'auto';
+      this.tabsRoot.style.transform = 'translateX(-50%)';
+      this.tabsRoot.style.width = 'fit-content';
+      this.tabsRoot.style.gap = isTablet ? '8px' : '10px';
+    }
+
+    Object.entries(this.tabButtons).forEach(([id, btn]) => {
+      if (isMobile) {
+        btn.style.flex = '1 1 0';
+        btn.style.minWidth = '0';
+        btn.style.width = '0';
+        btn.style.padding = '8px 10px';
+        btn.style.fontSize = id === 'premium' ? '11px' : '12px';
+      } else if (isTablet) {
+        btn.style.flex = '0 0 auto';
+        btn.style.width = 'auto';
+        btn.style.minWidth = id === 'premium' ? '220px' : '190px';
+        btn.style.padding = '8px 14px';
+        btn.style.fontSize = '14px';
+      } else {
+        btn.style.flex = '0 0 auto';
+        btn.style.width = 'auto';
+        btn.style.minWidth = id === 'premium' ? '250px' : '220px';
+        btn.style.padding = '8px 18px';
+        btn.style.fontSize = '16px';
+      }
     });
   }
 
@@ -1695,6 +1728,7 @@ export class AppGame {
     const height = options.height ?? 64;
     const color = options.color ?? 0xd32f2f;
     const fontSize = options.fontSize ?? 18;
+    const textOffsetY = options.textOffsetY ?? 0;
     const container = new Container();
     const bg = new Graphics();
     bg.beginFill(color);
@@ -1715,13 +1749,14 @@ export class AppGame {
       fill: 0xffffff,
     });
     text.anchor.set(0.5);
-    text.position.set(width / 2, height / 2);
+    text.position.set(width / 2, height / 2 + textOffsetY);
 
     container.addChild(bg, bgSprite, glow, text);
     container.eventMode = 'static';
     container.cursor = 'pointer';
     container.on('pointertap', onPress);
     container._labelText = text;
+    container._labelOffsetY = textOffsetY;
     container._bgGraphics = bg;
     container._bgSprite = bgSprite;
     container._glow = glow;
