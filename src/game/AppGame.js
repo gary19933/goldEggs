@@ -1190,14 +1190,8 @@ export class AppGame {
   _renderPlay() {
     const width = this.app?.renderer?.width || 800;
     const height = this.app?.renderer?.height || 600;
-    const isLargeDesktop = width >= 1360 || height >= 860;
-    const eggCenterY = isLargeDesktop
-      ? Math.max(320, Math.min(height * 0.48, height - 350))
-      : Math.max(300, Math.min(height * 0.55, height - 320));
-    const labelY = Math.min(eggCenterY + 240, height - 150);
-    this._playLayout = {
-      actionButtonY: Math.min(eggCenterY + 275, height - 100),
-    };
+    const playMetrics = this._getPlayMetrics(width, height);
+    this._playLayout = playMetrics;
     const egg = this._getActiveEgg();
     const hasEgg = Boolean(egg);
     this._applyPageBackground(egg?.id ?? this.activeTabId);
@@ -1208,7 +1202,7 @@ export class AppGame {
       egg && typeof displayAmount === 'number' && displayAmount > 0 ? ` RM${displayAmount}` : '';
     const label = egg ? `${egg.label ?? egg.id ?? 'Egg'}${pricePart}` : '';
     this.eggLabel.text = label;
-    this.eggLabel.position.set(width / 2, labelY);
+    this.eggLabel.position.set(width / 2, playMetrics.labelY);
 
     this.triesText.text = '';
 
@@ -1220,7 +1214,7 @@ export class AppGame {
     if (hasEgg) {
       this._ensureEggSprites(egg);
     }
-    this._drawEgg(width / 2, eggCenterY);
+    this._drawEgg(width / 2, playMetrics.eggCenterY, playMetrics.eggWidth, playMetrics.eggHeight);
     this._drawCrackOverlay();
     this.egg.visible = hasEgg;
     this.eggLabel.visible = hasEgg;
@@ -1656,9 +1650,7 @@ export class AppGame {
     this.backdrop.addChild(frame);
   }
 
-  _drawEgg(centerX, centerY) {
-    const eggWidth = 400;
-    const eggHeight = 400;
+  _drawEgg(centerX, centerY, eggWidth = 400, eggHeight = eggWidth) {
 
     this.eggCenter = { x: centerX, y: centerY, width: eggWidth, height: eggHeight };
 
@@ -2374,8 +2366,8 @@ export class AppGame {
 
   resize(width, height) {
     this._drawBackdrop(width, height);
-    const centerY = height * 0.38;
-    this._drawEgg(width / 2, centerY);
+    const playMetrics = this._getPlayMetrics(width, height);
+    this._drawEgg(width / 2, playMetrics.eggCenterY, playMetrics.eggWidth, playMetrics.eggHeight);
 
     // this.titleText.position.set(width / 2, 18);
     this.statusText.position.set(width / 2, 58);
@@ -2423,6 +2415,56 @@ export class AppGame {
 
   _positionStoredBar(crackButtonY) {
     if (!this.storedBarRoot) return;
+  }
+
+  _getPlayMetrics(width, height) {
+    const viewportWidth = window.innerWidth || width || 0;
+    const viewportHeight = window.innerHeight || height || 0;
+    const isMobile = viewportWidth <= 520;
+    const isTablet = viewportWidth > 520 && viewportWidth <= 920;
+    const isLargeDesktop = viewportWidth >= 1360 || viewportHeight >= 860;
+    const actionH = this.actionButton?._baseHeight ?? this.actionButton?.height ?? 64;
+    const marginBottom = isMobile ? 18 : 24;
+    const hudBottom = isMobile ? 228 : isTablet ? 238 : isLargeDesktop ? 220 : 232;
+    const topPadding = isMobile ? 10 : 14;
+    const minEggSize = isMobile ? 220 : isTablet ? 260 : 300;
+    const maxEggSize = isMobile ? 300 : 400;
+    const labelGap = isMobile ? 14 : isTablet ? 18 : 22;
+    const buttonGap = isMobile ? 18 : isTablet ? 22 : 26;
+    const labelReserve = isMobile ? 30 : 34;
+    const bottomLimit = height - actionH - marginBottom;
+    const availableHeight = Math.max(
+      220,
+      bottomLimit - hudBottom - topPadding - labelGap - buttonGap - labelReserve,
+    );
+    const eggWidth = Math.max(
+      minEggSize,
+      Math.min(
+        maxEggSize,
+        width * (isMobile ? 0.42 : isTablet ? 0.38 : 0.32),
+        availableHeight,
+      ),
+    );
+    const eggHeight = eggWidth;
+    const eggTop = hudBottom + topPadding;
+    let eggCenterY = eggTop + eggHeight / 2;
+    let labelY = eggTop + eggHeight + labelGap;
+    let actionButtonY = labelY + buttonGap;
+
+    const overflow = actionButtonY - bottomLimit;
+    if (overflow > 0) {
+      eggCenterY -= overflow;
+      labelY -= overflow;
+      actionButtonY -= overflow;
+    }
+
+    return {
+      eggWidth,
+      eggHeight,
+      eggCenterY,
+      labelY,
+      actionButtonY: Math.min(actionButtonY, bottomLimit),
+    };
   }
   // endregion helpers / state ---------------------------------------------------
 }
