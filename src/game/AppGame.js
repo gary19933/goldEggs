@@ -129,7 +129,7 @@ export class AppGame {
       fontFamily: 'Segoe UI, Arial, sans-serif',
       fontSize: 18,
       fontWeight: '800',
-      fill: 0xfff1c1,
+      fill: 0xffffff,
     });
     this.eggLabel.anchor.set(0.5, 0.5);
     this.playContainer.addChild(this.eggLabel);
@@ -246,12 +246,19 @@ export class AppGame {
       const btn = document.createElement('button');
       btn.textContent = label;
       Object.assign(btn.style, {
-        padding: '8px 12px',
-        background: 'rgba(45,13,13,0.9)',
-        color: '#ffd54f',
-        border: '2px solid #ffd54f',
-        borderRadius: '10px',
+        width: '95px',
+        height: '44px',
+        padding: '0 12px',
+        backgroundColor: 'transparent',
+        backgroundImage: 'url("/assets/interface/info-btn.png")',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 100%',
+        color: '#ffffff',
+        border: 'none',
+        borderRadius: '0',
         fontWeight: '700',
+        fontSize: '14px',
         cursor: 'pointer',
       });
       return btn;
@@ -277,12 +284,8 @@ export class AppGame {
     const rewardsBtn = makeBtn('History');
     rewardsBtn.onclick = () => this._showHistoryModal();
 
-    const soundBtn = makeBtn('Sound');
-    soundBtn.onclick = () => this._toggleSoundPanel();
-
     buttonWrap.appendChild(infoBtn);
     buttonWrap.appendChild(rewardsBtn);
-    buttonWrap.appendChild(soundBtn);
 
     const panel = document.createElement('div');
     Object.assign(panel.style, {
@@ -594,24 +597,33 @@ export class AppGame {
 
     const panel = document.createElement('div');
     Object.assign(panel.style, {
-      background: 'linear-gradient(160deg, rgba(45,13,13,0.98), rgba(20,8,8,0.98))',
-      border: '2px solid #ffd54f',
+      backgroundColor: 'transparent',
+      backgroundImage: 'url("/assets/interface/box.png")',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+      backgroundSize: '100% 100%',
+      border: 'none',
       borderRadius: '16px',
-      padding: '20px 22px',
-      maxWidth: '520px',
+      padding: '52px 52px',
+      maxWidth: '560px',
       width: '100%',
+      maxHeight: '88vh',
       color: '#ffe082',
       boxShadow: '0 18px 36px rgba(0,0,0,0.45)',
       display: 'flex',
       flexDirection: 'column',
       gap: '12px',
+      overflow: 'hidden',
     });
 
-    const title = document.createElement('div');
+    const title = document.createElement('h2');
     Object.assign(title.style, {
-      fontWeight: '800',
-      fontSize: '20px',
-      color: '#ffd54f',
+      margin: '0 0 0 20px',
+      fontWeight: '900',
+      fontSize: '24px',
+      color: '#ffffff',
+      textAlign: 'center',
+      flex: '1',
     });
 
     const headerRow = document.createElement('div');
@@ -623,33 +635,35 @@ export class AppGame {
     });
 
     const closeX = document.createElement('button');
-    closeX.textContent = '✕';
+    closeX.textContent = '';
+    closeX.setAttribute('aria-label', 'Close');
     Object.assign(closeX.style, {
-      width: '30px',
-      height: '30px',
-      background: 'linear-gradient(135deg, rgba(93, 64, 55, 0.9), rgba(55, 28, 24, 0.9))',
-      color: '#ffe082',
-      border: '1px solid rgba(255, 213, 79, 0.35)',
-      borderRadius: '999px',
-      fontWeight: '800',
-      fontSize: '14px',
-      lineHeight: '1',
+      width: '34px',
+      height: '34px',
+      backgroundColor: 'transparent',
+      backgroundImage: 'url("/assets/interface/close.png")',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+      backgroundSize: '100% 100%',
+      border: 'none',
+      borderRadius: '0',
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
       cursor: 'pointer',
-      boxShadow: '0 4px 10px rgba(0,0,0,0.25)',
+      boxShadow: 'none',
     });
     closeX.onclick = () => this._closeModal();
 
+    headerRow.appendChild(document.createElement('div'));
     headerRow.appendChild(title);
     headerRow.appendChild(closeX);
 
     const body = document.createElement('div');
     Object.assign(body.style, {
-      fontSize: '15px',
-      lineHeight: '1.5',
-      color: '#ffeeb7',
+      fontSize: '16px',
+      lineHeight: '2.5',
+      color: '#ffffff',
       whiteSpace: 'pre-wrap',
     });
 
@@ -1575,10 +1589,128 @@ export class AppGame {
   }
 
   _showInfoModal() {
-    this._showModal(
-      'How to play',
-      'Crack your purchased eggs, store up to 3, and cash out after a winning crack.',
-    );
+    this._showModal('How To Play', '');
+    if (!this.modalBody) return;
+
+    const steps = [
+      'On the game page, choose the egg you want to buy from the tabs.',
+      'Use the required UCoins to buy the selected egg.',
+      'After buying, crack the egg to try your luck.',
+      'If the crack is successful, the egg moves to the next level.',
+      'Each time you crack again, the corresponding UCoins will be deducted.',
+      'If the crack fails, you need to buy a new egg to start again.',
+    ];
+
+    this.modalBody.innerHTML = '';
+    this.modalBody.style.display = 'flex';
+    this.modalBody.style.flexDirection = 'column';
+    this.modalBody.style.gap = '22px';
+    this.modalBody.style.whiteSpace = 'normal';
+    this.modalBody.style.paddingTop = '8px';
+    this.modalBody.style.paddingRight = '10px';
+    this.modalBody.style.maxHeight = '58vh';
+    this.modalBody.style.overflowY = 'auto';
+    this.modalBody.style.scrollbarWidth = 'thin';
+    this.modalBody.style.scrollbarColor = 'rgba(255, 213, 79, 0.45) rgba(255, 255, 255, 0.06)';
+
+    const divider = document.createElement('div');
+    Object.assign(divider.style, {
+      position: 'relative',
+      height: '18px',
+      marginBottom: '4px',
+      opacity: '0.95',
+    });
+
+    const dividerLine = document.createElement('div');
+    Object.assign(dividerLine.style, {
+      position: 'absolute',
+      left: '0',
+      right: '0',
+      top: '50%',
+      height: '1px',
+      transform: 'translateY(-50%)',
+      background: 'linear-gradient(90deg, rgba(194,122,35,0.1) 0%, rgba(242,178,73,0.95) 48%, rgba(194,122,35,0.1) 100%)',
+      boxShadow: '0 0 10px rgba(242,178,73,0.45)',
+    });
+
+    const dividerGem = document.createElement('div');
+    dividerGem.textContent = '✦';
+    Object.assign(dividerGem.style, {
+      position: 'absolute',
+      left: '50%',
+      top: '50%',
+      transform: 'translate(-50%, -50%)',
+      color: '#ffd36b',
+      fontSize: '18px',
+      lineHeight: '1',
+      padding: '0 10px',
+      background: '#000',
+      textShadow: '0 0 10px rgba(255, 211, 107, 0.6)',
+    });
+
+    divider.appendChild(dividerLine);
+    divider.appendChild(dividerGem);
+    this.modalBody.appendChild(divider);
+
+    steps.forEach((step, index) => {
+      const row = document.createElement('div');
+      Object.assign(row.style, {
+        display: 'grid',
+        gridTemplateColumns: '40px 1fr',
+        columnGap: '22px',
+        alignItems: 'start',
+      });
+
+      const badge = document.createElement('div');
+      badge.textContent = String(index + 1);
+      Object.assign(badge.style, {
+        width: '30px',
+        height: '30px',
+        borderRadius: '999px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#ffbf47',
+        fontSize: '20px',
+        fontWeight: '800',
+        lineHeight: '1',
+        background: 'radial-gradient(circle at 35% 35%, rgba(255,189,87,0.12), rgba(0,0,0,0.92) 62%)',
+        border: '1px solid rgba(255, 176, 54, 0.6)',
+        boxShadow: '0 0 0 2px rgba(255, 176, 54, 0.12), inset 0 0 14px rgba(255, 176, 54, 0.08)',
+      });
+
+      const textWrap = document.createElement('div');
+      Object.assign(textWrap.style, {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        minWidth: '0',
+      });
+
+      const text = document.createElement('div');
+      text.textContent = step;
+      Object.assign(text.style, {
+        color: '#ffffff',
+        fontSize: '14px',
+        lineHeight: '1.5',
+      });
+
+      textWrap.appendChild(text);
+
+      if (index < steps.length - 1) {
+        const separator = document.createElement('div');
+        Object.assign(separator.style, {
+          height: '1px',
+          width: '100%',
+          background: 'linear-gradient(90deg, rgba(255, 176, 54, 0.08) 0%, rgba(255, 176, 54, 0.45) 25%, rgba(255, 176, 54, 0.45) 75%, rgba(255, 176, 54, 0.08) 100%)',
+        });
+        textWrap.appendChild(separator);
+      }
+
+      row.appendChild(badge);
+      row.appendChild(textWrap);
+      this.modalBody.appendChild(row);
+    });
   }
 
   _showHistoryModal() {
