@@ -155,7 +155,7 @@ export class AppGame {
     this.bonusText.visible = false;
     this.playContainer.addChild(this.bonusText);
 
-    this.actionButton = this._createButton('Crack Egg', () => {
+    this.actionButton = this._createButton('Crack', () => {
       if (this.isLocked) return;
       this._handleCrack();
     }, { width: 300, height: 78, fontSize: 22, textOffsetY: -3 });
@@ -618,7 +618,7 @@ export class AppGame {
 
     const title = document.createElement('h2');
     Object.assign(title.style, {
-      margin: '0 0 0 20px',
+      margin: '0',
       fontWeight: '900',
       fontSize: '24px',
       color: '#ffffff',
@@ -763,6 +763,7 @@ export class AppGame {
       this.modalCloseX.style.display = 'inline-flex';
     }
     this.modalBody.innerHTML = '';
+    this.modalBody.classList.remove('history-body');
     this.modalBody.style.display = 'block';
     this.modalBody.style.gap = '0';
     this.modalBody.style.whiteSpace = 'pre-wrap';
@@ -924,6 +925,62 @@ export class AppGame {
     this._renderPlay();
   }
 
+  applyServerState(state = {}) {
+    const normalizeEgg = (egg) => {
+      if (!egg?.uid) return null;
+      const template = this.eggCatalog.find((item) => item.id === egg.id) || null;
+      return {
+        ...(template || {}),
+        ...egg,
+        id: typeof egg?.id === 'string' ? egg.id : (template?.id ?? 'gold'),
+        label: typeof egg?.label === 'string' ? egg.label : (template?.label ?? egg?.id ?? 'Egg'),
+        bet: Number(egg?.bet) || 0,
+        tries: Number(egg?.tries) || 0,
+        lastWinAmount: Number(egg?.lastWinAmount) || 0,
+        isMaxed: Boolean(egg?.isMaxed),
+      };
+    };
+    const normalizedEggs = Array.isArray(state.eggs)
+      ? state.eggs.map(normalizeEgg).filter(Boolean)
+      : [];
+    const eggById = new Map(normalizedEggs.map((egg) => [egg.uid, egg]));
+    const storedIds = Array.isArray(state.storedEggIds) && state.storedEggIds.length
+      ? state.storedEggIds
+      : normalizedEggs.map((egg) => egg.uid);
+
+    this.boughtEggs = normalizedEggs;
+    this.storedEggs = storedIds
+      .map((uid) => eggById.get(uid))
+      .filter(Boolean);
+    this.activeEggUid = typeof state.activeEggUid === 'string' ? state.activeEggUid : null;
+    this.activeSource = this.activeEggUid && this.storedEggs.some((egg) => egg.uid === this.activeEggUid)
+      ? 'stored'
+      : 'bought';
+    this.history = Array.isArray(state.history)
+      ? state.history.map((entry) => ({
+        ...entry,
+        time: entry?.time ? new Date(entry.time) : new Date(),
+      }))
+      : this.history;
+
+    const activeEgg = this._getActiveEgg();
+    if (activeEgg?.id) {
+      this.activeTabId = activeEgg.id;
+    } else {
+      const hasActiveTab = this.eggCatalog.some((egg) => egg.id === this.activeTabId);
+      this.activeTabId = hasActiveTab ? this.activeTabId : (this.eggCatalog[0]?.id ?? 'gold');
+    }
+
+    this._applyPageBackground(activeEgg?.id ?? this.activeTabId);
+    this._updatePrimaryButtonSkins();
+    this._refreshEggTabs();
+    this._updateBuyButtonLabel();
+    this._updateActionButtons();
+    this._renderStoredBar();
+    this._renderHomeDom();
+    this._renderPlay();
+  }
+
   _initTabEggs() {
     this.boughtEggs = [];
     this.storedEggs = [];
@@ -967,6 +1024,7 @@ export class AppGame {
       bonus,
       chargeAmount = 0,
       tryIndex,
+      state,
     } = result;
     if (balance !== undefined) {
       this.updateBalance(balance);
@@ -978,23 +1036,40 @@ export class AppGame {
     if (outcome === 'stored') {
       this.lastBonus = false;
       await this._playStoreAnimation();
-      this._moveActiveToStored();
+      if (state) {
+        this.applyServerState(state);
+      } else {
+        this._recordHistory(1, egg, { actionType: 'stored' });
+        this._moveActiveToStored();
+      }
       this._showToast('Your egg has been stored successfully.', 'success');
-      this._selectEggTab(this.activeTabId || 'gold');
+      this.lockUI(false);
+      return;
+    }
+
+    if (outcome === 'bought' || outcome === 'retrieved') {
+      this.lastBonus = false;
+      if (state) {
+        this.applyServerState(state);
+      }
       this.lockUI(false);
       return;
     }
 
     if (outcome === 'redeemed') {
       const targetEgg = storedEgg || egg;
-      if (targetEgg) {
+      if (!state && targetEgg) {
         this._removeEggFromArray(this.storedEggs, targetEgg.uid);
         this._removeEggFromArray(this.boughtEggs, targetEgg.uid);
         if (this.activeEggUid === targetEgg.uid) {
           this.activeEggUid = null;
         }
       }
-      this._recordHistory(2, targetEgg, { winAmount, chargeAmount });
+      if (state) {
+        this.applyServerState(state);
+      } else {
+        this._recordHistory(2, targetEgg, { winAmount, chargeAmount, actionType: 'redeemed' });
+      }
       this._showToast('Egg redeemed successfully.', 'success');
       this._toggleMode('play');
       this._renderPlay();
@@ -1004,9 +1079,11 @@ export class AppGame {
 
     if (outcome === 'cashout') {
       this.lastBonus = false;
-      this._removeActiveEgg();
-      const amount = egg?.lastWinAmount ?? 0;
-      if (egg) {
+      const amount = typeof winAmount === 'number' ? winAmount : (egg?.lastWinAmount ?? 0);
+      if (!state) {
+        this._removeActiveEgg();
+      }
+      if (!state && egg) {
         this.cashoutHistory.unshift({
           label: egg.label ?? egg.id ?? 'Egg',
           amount,
@@ -1016,7 +1093,11 @@ export class AppGame {
           this.cashoutHistory.length = 20;
         }
       }
-      this._recordHistory(2, egg, { winAmount: amount, chargeAmount });
+      if (state) {
+        this.applyServerState(state);
+      } else {
+        this._recordHistory(2, egg, { winAmount: amount, chargeAmount, actionType: 'redeemed' });
+      }
       this._showToast(`Cashed out RM${amount}.`, 'success');
       this._toggleMode('play');
       this._renderPlay();
@@ -1047,22 +1128,34 @@ export class AppGame {
           }
         }
         this.lastResultText = `Won RM${winAmount}`;
-        this._recordHistory(1, egg, { winAmount, chargeAmount });
+        if (!state) {
+          this._recordHistory(1, egg, { winAmount, chargeAmount, actionType: 'win' });
+        }
       // this._setStatus(`Fortune found! +${winAmount}`, 0x8cff66, 0xe4ffd8);
       // this._flashEgg(0x9ccc65);
       this._showToast(`Fortune found! +RM${winAmount}`, 'success');
     } else {
-      this._removeActiveEgg();
+      if (!state) {
+        this._removeActiveEgg();
+      }
       this.lastBonus = false;
       this.lastResultText = 'Try again later';
-        this._recordHistory(0, egg, { chargeAmount });
+        if (!state) {
+          this._recordHistory(0, egg, { chargeAmount, actionType: 'lose' });
+        }
         this._setStatus('', 0xffccbc, 0x2d0d0d);
         // this._flashEgg(0xff7043);
         this._showToast('Try again later', 'error');
       }
+      if (state) {
+        this.applyServerState(state);
+      }
       this._showResultModalAndReset(outcome === 'win', winAmount, egg);
     } else {
       this.lastBonus = false;
+      if (state) {
+        this.applyServerState(state);
+      }
       this._setStatus('Action completed.', 0xffeb3b, 0xfff7cf);
     }
 
@@ -1119,9 +1212,19 @@ export class AppGame {
       return;
     }
     const template = this._getSelectedEggTemplate();
+    if (this.onAction) {
+      this.lockUI(true);
+      void this.onAction({
+        action: 'buy',
+        betAmount: template.bet,
+        eggType: template.id,
+      });
+      return;
+    }
     const newEgg = this._createEggInstance(template);
     this.boughtEggs.push(newEgg);
     this.storedEggs.push(newEgg);
+    this._recordHistory(1, newEgg, { actionType: 'buy', chargeAmount: template.bet ?? 0 });
     this._renderStoredBar();
     this._enterPlay(newEgg, 'stored');
   }
@@ -1172,12 +1275,19 @@ export class AppGame {
       confirmBtn.textContent = 'Confirm';
       Object.assign(confirmBtn.style, {
         alignSelf: 'center',
-        padding: '8px 14px',
-        background: '#5d4037',
-        color: '#ffe082',
+        width: '138px',
+        height: '56px',
+        padding: '0',
+        backgroundColor: 'transparent',
+        backgroundImage: 'url("/assets/interface/confirm.png")',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 100%',
+        color: '#161616',
         border: 'none',
-        borderRadius: '10px',
+        borderRadius: '0',
         fontWeight: '700',
+        fontSize: '18px',
         cursor: 'pointer',
       });
       confirmBtn.onclick = () => {
@@ -1204,6 +1314,18 @@ export class AppGame {
     if (current && current.uid === egg.uid) {
       return;
     }
+    if (this.onAction) {
+      this.lockUI(true);
+      void this.onAction({
+        action: 'retrieve',
+        betAmount: egg.bet,
+        eggId: egg.uid,
+        eggType: egg.id,
+        tryIndex: egg.tries ?? 0,
+      });
+      return;
+    }
+    this._recordHistory(1, egg, { actionType: 'retrieve' });
     this._enterPlay(egg, 'stored');
   }
 
@@ -1221,7 +1343,23 @@ export class AppGame {
 
   _selectEggTab(tabId) {
     const current = this._getActiveEgg();
+    this.activeTabId = tabId;
+    this._applyPageBackground(this.activeTabId);
+    this._updatePrimaryButtonSkins();
+    this._refreshEggTabs();
+    this._updateBuyButtonLabel();
     if (current) {
+      if (this.onAction) {
+        this.lockUI(true);
+        void this.onAction({
+          action: 'store',
+          betAmount: current.bet,
+          eggId: current.uid,
+          eggType: current.id,
+          tryIndex: current.tries ?? 0,
+        });
+        return;
+      }
       const alreadyStored = this.storedEggs.some((item) => item.uid === current.uid);
       if (!alreadyStored && this.storedEggs.length >= this.maxStored) {
         this._showToast(`Storage is full (${this.maxStored}/${this.maxStored}).`, 'error');
@@ -1230,16 +1368,12 @@ export class AppGame {
       if (!alreadyStored) {
         this.storedEggs.push(current);
       }
+      this._recordHistory(1, current, { actionType: 'stored' });
       this.activeEggUid = null;
       this.isCracked = false;
       this.lastResultText = '';
       this._renderStoredBar();
     }
-    this.activeTabId = tabId;
-    this._applyPageBackground(this.activeTabId);
-    this._updatePrimaryButtonSkins();
-    this._refreshEggTabs();
-    this._updateBuyButtonLabel();
     this._renderPlay();
   }
 
@@ -1721,12 +1855,13 @@ export class AppGame {
     this._showModal('History', '');
     this.modalBody.style.display = 'flex';
     this.modalBody.style.flexDirection = 'column';
-    this.modalBody.style.gap = '10px';
-    this.modalBody.style.maxHeight = '240px';
+    this.modalBody.style.gap = '22px';
+    this.modalBody.style.maxHeight = '58vh';
     this.modalBody.style.overflowY = 'auto';
-    this.modalBody.style.paddingRight = '6px';
+    this.modalBody.style.paddingRight = '10px';
+    this.modalBody.style.paddingBottom = '10px';
     this.modalBody.style.scrollbarWidth = 'thin';
-    this.modalBody.style.scrollbarColor = 'rgba(255, 213, 79, 0.6) rgba(20, 8, 8, 0.4)';
+    this.modalBody.style.scrollbarColor = 'rgba(255, 255, 255, 0.72) rgba(255, 255, 255, 0.08)';
     this.modalBody.classList.add('history-body');
 
     if (!document.getElementById('history-scrollbar-style')) {
@@ -1734,122 +1869,263 @@ export class AppGame {
       style.id = 'history-scrollbar-style';
       style.textContent = `
         #game-modal .history-body::-webkit-scrollbar { width: 6px; }
-        #game-modal .history-body::-webkit-scrollbar-track { background: rgba(20, 8, 8, 0.4); border-radius: 6px; }
-        #game-modal .history-body::-webkit-scrollbar-thumb { background: rgba(255, 213, 79, 0.6); border-radius: 6px; }
-        #game-modal .history-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 213, 79, 0.8); }
+        #game-modal .history-body::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.08); border-radius: 6px; }
+        #game-modal .history-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.72); border-radius: 6px; }
+        #game-modal .history-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.9); }
       `;
       document.head.appendChild(style);
     }
 
-    const statusLabel = (value) => {
-      if (value === 1) return 'Success';
-      if (value === 2) return 'Redeemed';
-      return 'Failed';
+    const typeLabel = (value) => {
+      if (typeof value !== 'string' || !value.length) return 'Egg';
+      return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
     };
-    const statusStyle = (value) => {
-      if (value === 1) return { bg: 'rgba(102, 187, 106, 0.2)', color: '#b9f6ca' };
-      if (value === 2) return { bg: 'rgba(255, 213, 79, 0.2)', color: '#ffe082' };
-      return { bg: 'rgba(239, 83, 80, 0.2)', color: '#ffccbc' };
+    const currentSummaryState = (eggId) => {
+      if (!eggId) return null;
+      if (this.activeEggUid === eggId) return 'active';
+      if (this.storedEggs.some((egg) => egg?.uid === eggId)) return 'stored';
+      return null;
+    };
+    const statusLabel = (entry) => {
+      const currentState = currentSummaryState(entry?.eggId);
+      if (currentState === 'stored') return 'Stored';
+      if (currentState === 'active' && entry?.actionType === 'buy') return 'Active';
+      if (entry?.actionType === 'redeemed') return 'Redeemed';
+      if (entry?.actionType === 'stored') return 'Stored';
+      if (entry?.actionType === 'retrieve') return 'Retrieved';
+      if (entry?.actionType === 'buy') return 'Bought';
+      if (entry?.status === 0) return 'Lose';
+      return 'Win';
+    };
+    const statusStyle = (entry) => {
+      const currentState = currentSummaryState(entry?.eggId);
+      if (currentState === 'active' && entry?.actionType === 'buy') {
+        return { bg: 'rgba(255, 183, 77, 0.18)', color: '#ffe0b2' };
+      }
+      if (currentState === 'stored') return { bg: 'rgba(158, 158, 158, 0.18)', color: '#eceff1' };
+      if (entry?.actionType === 'redeemed') return { bg: 'rgba(255, 213, 79, 0.2)', color: '#ffe082' };
+      if (entry?.actionType === 'stored') {
+        return { bg: 'rgba(158, 158, 158, 0.18)', color: '#eceff1' };
+      }
+      if (entry?.actionType === 'retrieve') {
+        return { bg: 'rgba(121, 134, 203, 0.2)', color: '#e8eaf6' };
+      }
+      if (entry?.actionType === 'buy') {
+        return { bg: 'rgba(255, 183, 77, 0.18)', color: '#ffe0b2' };
+      }
+      if (entry?.status === 0) return { bg: 'rgba(229, 57, 53, 0.2)', color: '#ffcdd2' };
+      return { bg: 'rgb(39 245 6 / 20%)', color: 'rgb(213 255 205)' };
+    };
+    const visibleEntries = (entries = []) => entries.filter((entry) => entry?.actionType !== 'buy');
+    const eventLabel = (entry) => {
+      const crackNumber = Number.isInteger(entry?.tryIndex) && entry.tryIndex > 0 ? entry.tryIndex : null;
+      const crackText = Number.isInteger(crackNumber) ? `Crack #${crackNumber}` : null;
+      const eggText = typeLabel(entry?.eggType);
+      switch (entry?.actionType) {
+        case 'stored':
+          return crackNumber && crackNumber > 0 ? `Stored after ${crackText}` : 'Stored egg';
+        case 'retrieve':
+          return 'Retrieved stored egg';
+        case 'redeemed':
+          return entry?.winAmount ? `Redeemed RM${entry.winAmount}` : 'Redeemed';
+        case 'win':
+          return crackText ? `${crackText} • Win` : 'Win';
+        case 'lose':
+          return crackText ? `${crackText} • Lose` : 'Lose';
+        default:
+          return crackText || 'Updated';
+      }
     };
 
-    this.history.forEach((entry, index) => {
-      const when = entry.time instanceof Date
-        ? entry.time.toLocaleString()
-        : String(entry.time || '');
-      const row = document.createElement('div');
-      Object.assign(row.style, {
+    const grouped = [];
+    const groupMap = new Map();
+    this.history.forEach((entry) => {
+      const key = entry?.eggId || `ungrouped-${grouped.length}`;
+      if (!groupMap.has(key)) {
+        const group = { key, latest: entry, entries: [] };
+        groupMap.set(key, group);
+        grouped.push(group);
+      }
+      groupMap.get(key).entries.push(entry);
+    });
+
+    grouped.forEach((group, index) => {
+      const latest = group.latest;
+      const entries = visibleEntries(group.entries);
+      const panel = document.createElement('details');
+      panel.open = index === 0;
+      Object.assign(panel.style, {
+        background: 'rgba(8, 8, 10, 0.92)',
+        border: '1px solid rgba(255, 255, 255, 0.12)',
+        borderRadius: '12px',
+        overflow: 'hidden',
+        flexShrink: '0',
+        boxShadow: '0 12px 24px rgba(0, 0, 0, 0.18)',
+      });
+      panel.addEventListener('toggle', () => {
+        if (!panel.open) return;
+        Array.from(this.modalBody?.querySelectorAll('details') || []).forEach((item) => {
+          if (item !== panel) {
+            item.open = false;
+          }
+        });
+      });
+
+      const summary = document.createElement('summary');
+      Object.assign(summary.style, {
+        listStyle: 'none',
+        cursor: 'pointer',
+        padding: '14px 18px',
+      });
+
+      const summaryGrid = document.createElement('div');
+      Object.assign(summaryGrid.style, {
         display: 'grid',
         gridTemplateColumns: '1fr auto',
+        rowGap: '0',
+        columnGap: '20px',
         alignItems: 'center',
-        gap: '12px',
-        padding: '10px 12px',
-        borderRadius: '12px',
-        background: 'rgba(30, 12, 12, 0.7)',
-        border: '1px solid rgba(255, 213, 79, 0.25)',
       });
 
-      const left = document.createElement('div');
-      Object.assign(left.style, {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        fontWeight: '700',
-        color: '#ffe082',
-        flexWrap: 'wrap',
+      const idLine = document.createElement('div');
+      idLine.textContent = latest?.eggId ? `#${latest.eggId}` : 'No game id';
+      Object.assign(idLine.style, {
+        fontSize: 'clamp(12px, 2.8vw, 15px)',
+        color: '#ffffff',
+        fontWeight: '600',
+        lineHeight: '1.3',
+        wordBreak: 'break-word',
       });
 
-      const title = document.createElement('div');
-      const eggIdText = entry.eggId ? ` (#${entry.eggId})` : '';
-      const crackText = Number.isInteger(entry.tryIndex)
-        ? ` • Crack #${entry.tryIndex + 1}`
-        : '';
-      title.textContent = `${index + 1}. ${entry.eggType ?? 'Egg'}${eggIdText}${crackText}`;
-
-      const status = document.createElement('div');
-      const statusToken = statusStyle(entry.status);
-      status.textContent = statusLabel(entry.status);
-      Object.assign(status.style, {
-        padding: '2px 8px',
+      const summaryStatus = document.createElement('div');
+      const summaryToken = statusStyle(latest);
+      summaryStatus.textContent = statusLabel(latest);
+      Object.assign(summaryStatus.style, {
+        padding: '4px 20px',
         borderRadius: '999px',
         fontSize: '11px',
         letterSpacing: '0.3px',
         textTransform: 'uppercase',
-        background: statusToken.bg,
-        color: statusToken.color,
+        background: summaryToken.bg,
+        color: summaryToken.color,
         border: '1px solid rgba(255, 213, 79, 0.2)',
+        justifySelf: 'end',
       });
 
-      left.appendChild(title);
-      left.appendChild(status);
+      summaryGrid.appendChild(idLine);
+      summaryGrid.appendChild(summaryStatus);
+      summary.appendChild(summaryGrid);
+      panel.appendChild(summary);
 
-      const right = document.createElement('div');
-      Object.assign(right.style, {
-        fontWeight: '800',
-        color: '#ffd54f',
-        textAlign: 'right',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-end',
-        gap: '2px',
-      });
-
-      const winLine = document.createElement('div');
-      winLine.textContent = entry.winAmount ? `Prize RM${entry.winAmount}` : '-';
-      right.appendChild(winLine);
-
-      if (entry.status === 2 && entry.winAmount) {
-        const redeemLine = document.createElement('div');
-        redeemLine.textContent = `Redeemed RM${entry.winAmount}`;
-        Object.assign(redeemLine.style, {
-          fontSize: '11px',
-          color: '#ffe082',
-          fontWeight: '700',
-        });
-        right.appendChild(redeemLine);
+      if (!entries.length) {
+        panel.open = false;
+        summary.style.cursor = 'default';
+        this.modalBody.appendChild(panel);
+        return;
       }
 
-      const chargeLine = document.createElement('div');
-      const chargeAmount = typeof entry.chargeAmount === 'number' ? entry.chargeAmount : 0;
-      chargeLine.textContent = chargeAmount > 0 ? `Charge RM${chargeAmount}` : '';
-      Object.assign(chargeLine.style, {
-        fontSize: '11px',
-        color: '#d7c6a0',
-        fontWeight: '600',
-      });
-      right.appendChild(chargeLine);
-
-      const time = document.createElement('div');
-      time.textContent = when;
-      Object.assign(time.style, {
-        gridColumn: '1 / -1',
-        fontSize: '12px',
-        color: '#d7c6a0',
+      const body = document.createElement('div');
+      Object.assign(body.style, {
+        padding: '0 14px 18px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+        maxHeight: '240px',
+        overflowY: 'auto',
+        overscrollBehavior: 'contain',
+        scrollbarWidth: 'thin',
+        scrollbarColor: 'rgba(255, 255, 255, 0.72) rgba(255, 255, 255, 0.08)',
       });
 
-      row.appendChild(left);
-      row.appendChild(right);
-      row.appendChild(time);
-      this.modalBody.appendChild(row);
+      entries.forEach((entry, eventIndex) => {
+        const eventRow = document.createElement('div');
+        Object.assign(eventRow.style, {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+          paddingTop: eventIndex === 0 ? '2px' : '10px',
+          borderTop: eventIndex === 0 ? 'none' : '1px solid rgba(255, 255, 255, 0.08)',
+        });
+
+        const topLine = document.createElement('div');
+        Object.assign(topLine.style, {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+        });
+
+        const label = document.createElement('div');
+        label.textContent = eventLabel(entry);
+        Object.assign(label.style, {
+          color: '#ffffff',
+          fontWeight: '700',
+        });
+
+        const meta = document.createElement('div');
+        Object.assign(meta.style, {
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: '4px',
+          textAlign: 'right',
+          whiteSpace: 'nowrap',
+        });
+
+        const prizeAmount = typeof entry?.winAmount === 'number' ? entry.winAmount : 0;
+        if (prizeAmount > 0 && (entry?.actionType === 'win' || entry?.actionType === 'redeemed')) {
+          const prizeLine = document.createElement('div');
+          prizeLine.textContent = `Prize RM${prizeAmount}`;
+          Object.assign(prizeLine.style, {
+            fontSize: '15px',
+            color: 'rgb(32, 244, 12)',
+            fontWeight: '700',
+          });
+          meta.appendChild(prizeLine);
+        }
+
+        const footer = document.createElement('div');
+        Object.assign(footer.style, {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+        });
+
+        const when = document.createElement('div');
+        when.textContent = entry.time instanceof Date ? entry.time.toLocaleString() : String(entry.time || '');
+        Object.assign(when.style, {
+          fontSize: '12px',
+          color: 'rgba(255, 255, 255, 0.72)',
+        });
+
+        const costLine = document.createElement('div');
+        const shouldShowCost = !['stored', 'retrieve', 'redeemed'].includes(entry?.actionType);
+        const costAmount = typeof entry?.betAmount === 'number'
+          ? entry.betAmount
+          : (typeof entry?.chargeAmount === 'number' ? entry.chargeAmount : 0);
+        if (shouldShowCost && costAmount > 0) {
+          costLine.textContent = `Cost RM${costAmount}`;
+          Object.assign(costLine.style, {
+            fontSize: '12px',
+            color: 'rgba(255, 255, 255, 0.72)',
+            fontWeight: '600',
+          });
+        }
+
+        topLine.appendChild(label);
+        topLine.appendChild(meta);
+        eventRow.appendChild(topLine);
+        footer.appendChild(when);
+        if (shouldShowCost && costAmount > 0) {
+          footer.appendChild(costLine);
+        }
+        eventRow.appendChild(footer);
+        body.appendChild(eventRow);
+      });
+
+      panel.appendChild(body);
+      this.modalBody.appendChild(panel);
     });
   }
   // endregion rendering ---------------------------------------------------------
@@ -1954,11 +2230,7 @@ export class AppGame {
   _getEggSpriteUrls(egg, level) {
     const type = egg?.id === 'premium' ? 'premium' : 'normal';
     const safeLevel = Math.max(1, Math.min(level || 1, this.maxCracks));
-    const normalCrackName = (lvl) => {
-      if (lvl === 1) return 'gold-crak-1.png';
-      if (lvl === 3) return 'golden-crack-3.png';
-      return `gold-crack-${lvl}.png`;
-    };
+    const normalCrackName = (lvl) => `gold-crack-${lvl}.png`;
     const normalFullName = (lvl) => `gold-${lvl}.png`;
     const premiumFullName = (lvl) => `diamond-${lvl}.png`;
     const premiumCrackName = (lvl) => `diamond-crack-${lvl}.png`;

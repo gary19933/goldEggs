@@ -4,6 +4,7 @@ dist-sdk
 .DS_Store
 .env.local
 server/logs/
+server/data/
 frontend.log
 frontend.err.log
 backend.log
