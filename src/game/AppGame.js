@@ -1683,11 +1683,11 @@ export class AppGame {
 
     const steps = [
       'On the game page, choose the egg you want to buy from the tabs.',
-      'Use the required UCoins to buy the selected egg.',
+      'Use the required UCoins to buy the selected egg. The purchase price covers your first crack attempt.',
       'After buying, crack the egg to try your luck.',
       'A bonus round can appear before a crack. If that crack succeeds, the reward is doubled.',
       'If the crack is successful, the egg moves to the next level.',
-      'Each time you crack again, the corresponding UCoins will be deducted.',
+      'After a successful crack, the next crack will deduct the UCoins required for that level.',
       'If the crack fails, you need to buy a new egg to start again.',
       'To redeem an egg, take a screenshot and send it to customer support for verification.',
       'After customer support processes the request, the redeemed record will appear in History automatically.',
