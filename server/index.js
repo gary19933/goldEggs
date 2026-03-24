@@ -86,7 +86,7 @@ const persistStateStore = async () => {
 const buildStatus = (result) => {
   if (result === 'win') return 1;
   if (result === 'lose') return 0;
-  if (result === 'cashout' || result === 'redeemed') return 2;
+  if (result === 'redeemed') return 2;
   return null;
 };
 
@@ -276,7 +276,7 @@ app.post('/game/action', (req, res) => {
       return res.status(409).json({ apiStatus: 'error', message: `Storage is full (${MAX_STORED}/${MAX_STORED}).` });
     }
     if (userState.balance < purchaseCost) {
-      return res.status(409).json({ apiStatus: 'error', message: 'Insufficient balance to buy this egg.' });
+      return res.status(409).json({ apiStatus: 'error', message: 'Insufficient UCoins' });
     }
     markCurrentStoredIfNeeded(userState);
     const egg = createEggState(userState, eggType, eggId);
@@ -427,10 +427,10 @@ app.post('/game/action', (req, res) => {
     return res.json(response);
   }
 
-  if (action === 'cashout' || action === 'redeem') {
+  // Redeem is handled by backoffice after support confirms the player's screenshot.
+  if (action === 'redeem') {
     const winAmount = effectiveBetAmount;
     userState.balance = Math.max(0, userState.balance + winAmount);
-    const result = action === 'redeem' ? 'redeemed' : 'cashout';
     if (egg) {
       userState.eggs.delete(egg.uid);
       if (userState.activeEggUid === egg.uid) {
@@ -446,7 +446,7 @@ app.post('/game/action', (req, res) => {
     });
     const response = buildResponse(userState, {
       status: 2,
-      result,
+      result: 'redeemed',
       winAmount,
       chargeAmount: 0,
       eggId: egg?.uid ?? eggId,
@@ -467,7 +467,7 @@ app.post('/game/action', (req, res) => {
       level: response.level,
       betAmount,
       effectiveBetAmount,
-      result: response.result,
+      result: 'redeemed',
       status: response.status,
       winAmount,
       chargeAmount: 0,
@@ -481,11 +481,9 @@ app.post('/game/action', (req, res) => {
 
   userState.activeEggUid = egg.uid;
   const baseWinChance = 0.5 / Math.pow(2, Math.max(0, serverTryIndex));
-  const bonusChance = Math.min(0.01, baseWinChance);
-  const normalWinChance = Math.max(0, baseWinChance - bonusChance);
-  const roll = Math.random();
-  const didWin = FORCE_WIN ? true : roll < bonusChance + normalWinChance;
-  const didBonus = FORCE_BONUS ? didWin : roll < bonusChance;
+  const bonusChance = 0.01;
+  const didBonus = FORCE_BONUS ? true : Math.random() < bonusChance;
+  const didWin = FORCE_WIN ? true : Math.random() < baseWinChance;
   const winAmount = didWin ? effectiveBetAmount * (didBonus ? 2 : 1) : 0;
   const chargeAmount = egg?.hasCracked ? effectiveBetAmount : 0;
   userState.balance = Math.max(0, userState.balance + winAmount - chargeAmount);

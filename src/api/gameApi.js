@@ -119,8 +119,17 @@ async function postJson(path, payload) {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`API error ${response.status}: ${message}`);
+    const rawMessage = await response.text();
+    let message = rawMessage;
+    try {
+      const parsed = JSON.parse(rawMessage);
+      if (typeof parsed?.message === 'string' && parsed.message.trim()) {
+        message = parsed.message.trim();
+      }
+    } catch {
+      // keep raw text when the response body is not JSON
+    }
+    throw new Error(message || `API error ${response.status}`);
   }
 
   return response.json();
@@ -234,7 +243,7 @@ function recordHistory(userState, status, egg, extra = {}) {
 function buildStatus(result) {
   if (result === 'win') return 1;
   if (result === 'lose') return 0;
-  if (result === 'cashout' || result === 'redeemed') return 2;
+  if (result === 'redeemed') return 2;
   return null;
 }
 
@@ -301,7 +310,7 @@ function mockAction(payload = {}) {
       return Promise.reject(new Error(`Storage is full (${MAX_STORED}/${MAX_STORED}).`));
     }
     if (!MOCK_UNLIMITED_BUY && userState.balance < purchaseCost) {
-      return Promise.reject(new Error('Insufficient balance to buy this egg.'));
+      return Promise.reject(new Error('Insufficient UCoins'));
     }
     markCurrentStoredIfNeeded(userState);
     const egg = createEggState(userState, eggType, eggId);
@@ -391,7 +400,8 @@ function mockAction(payload = {}) {
     }));
   }
 
-  if (action === 'cashout' || action === 'redeem') {
+  // Redeem is a backoffice-only settlement after support verifies the player's screenshot.
+  if (action === 'redeem') {
     const winAmount = effectiveBetAmount;
     userState.balance = Math.max(0, userState.balance + winAmount);
     userState.eggs.delete(egg.uid);
@@ -408,7 +418,7 @@ function mockAction(payload = {}) {
     persistMockStore();
     return Promise.resolve(buildResponse(userState, {
       status: 2,
-      result: action === 'redeem' ? 'redeemed' : 'cashout',
+      result: 'redeemed',
       winAmount,
       chargeAmount: 0,
       eggId: egg.uid,
@@ -421,11 +431,9 @@ function mockAction(payload = {}) {
 
   userState.activeEggUid = egg.uid;
   const baseWinChance = 0.5 / Math.pow(2, Math.max(0, serverTryIndex));
-  const bonusChance = Math.min(0.01, baseWinChance);
-  const normalWinChance = Math.max(0, baseWinChance - bonusChance);
-  const roll = Math.random();
-  const didWin = FORCE_WIN ? true : roll < bonusChance + normalWinChance;
-  const didBonus = FORCE_BONUS ? didWin : roll < bonusChance;
+  const bonusChance = 0.01;
+  const didBonus = FORCE_BONUS ? true : Math.random() < bonusChance;
+  const didWin = FORCE_WIN ? true : Math.random() < baseWinChance;
   const winAmount = didWin ? effectiveBetAmount * (didBonus ? 2 : 1) : 0;
   const chargeAmount = egg.hasCracked ? effectiveBetAmount : 0;
   userState.balance = Math.max(0, userState.balance + winAmount - chargeAmount);

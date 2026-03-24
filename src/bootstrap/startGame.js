@@ -2,6 +2,21 @@ import { Application } from 'pixi.js';
 import { initGame, gameAction, SHOULD_MOCK } from '../api/gameApi.js';
 import { AppGame } from '../game/AppGame.js';
 
+function getActionErrorMessage(error) {
+  const rawMessage = typeof error?.message === 'string' ? error.message.trim() : '';
+  if (!rawMessage) return 'Action failed, please retry.';
+
+  const lowered = rawMessage.toLowerCase();
+  if (
+    lowered.includes('insufficient balance')
+    || lowered.includes('insufficient ucoins')
+  ) {
+    return 'Insufficient UCoins';
+  }
+
+  return rawMessage;
+}
+
 /**
  * Shared game bootstrap used by iframe (index.html) and JS SDK.
  * Returns a handle with destroy() to tear down.
@@ -140,7 +155,7 @@ export async function startGame(options = {}) {
       }
     } catch (error) {
       console.error('Action error', error);
-      game.showError('Action failed, please retry.');
+      game.showError(getActionErrorMessage(error));
     } finally {
       game.lockUI(false);
     }

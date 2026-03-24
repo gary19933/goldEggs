@@ -43,7 +43,6 @@ export class AppGame {
     this.lastResultText = '';
     this.lastBonus = false;
     this.history = [];
-    this.cashoutHistory = [];
     this.activeTabId = 'gold';
     this.previousTabId = null;
     this._prevEggOnStoredLose = null;
@@ -167,11 +166,7 @@ export class AppGame {
     }, { width: 380, height: 90, color: 0x6d4c41, fontSize: 22 });
     this.playContainer.addChild(this.buyButton);
 
-    this.cashoutButton = this._createButton('Cashout', () => {
-      if (this.isLocked) return;
-      this._handleCashout();
-    }, { width: 180, height: 54, color: 0x1b5e20 });
-    this.playContainer.addChild(this.cashoutButton);
+    this.cashoutButton = null;
 
     this.backButton = this._createButton('🏠', () => {
       if (this.isLocked) return;
@@ -1057,6 +1052,7 @@ export class AppGame {
     }
 
     if (outcome === 'redeemed') {
+      this.lastBonus = false;
       const targetEgg = storedEgg || egg;
       if (!state && targetEgg) {
         this._removeEggFromArray(this.storedEggs, targetEgg.uid);
@@ -1077,37 +1073,9 @@ export class AppGame {
       return;
     }
 
-    if (outcome === 'cashout') {
-      this.lastBonus = false;
-      const amount = typeof winAmount === 'number' ? winAmount : (egg?.lastWinAmount ?? 0);
-      if (!state) {
-        this._removeActiveEgg();
-      }
-      if (!state && egg) {
-        this.cashoutHistory.unshift({
-          label: egg.label ?? egg.id ?? 'Egg',
-          amount,
-          time: new Date(),
-        });
-        if (this.cashoutHistory.length > 20) {
-          this.cashoutHistory.length = 20;
-        }
-      }
-      if (state) {
-        this.applyServerState(state);
-      } else {
-        this._recordHistory(2, egg, { winAmount: amount, chargeAmount, actionType: 'redeemed' });
-      }
-      this._showToast(`Cashed out RM${amount}.`, 'success');
-      this._toggleMode('play');
-      this._renderPlay();
-      this.lockUI(false);
-      return;
-    }
-
     if (outcome === 'win' || outcome === 'lose') {
       this.isCracked = true;
-      this.lastBonus = outcome === 'win' ? Boolean(bonus) : false;
+      this.lastBonus = Boolean(bonus);
       this._drawCrackOverlay();
       await this._playBreakAnimation();
 
@@ -1127,30 +1095,33 @@ export class AppGame {
             egg.bet = doubled;
           }
         }
-        this.lastResultText = `Won RM${winAmount}`;
+        this.lastResultText = bonus ? `Bonus won RM${winAmount}` : `Won RM${winAmount}`;
         if (!state) {
           this._recordHistory(1, egg, { winAmount, chargeAmount, actionType: 'win' });
         }
       // this._setStatus(`Fortune found! +${winAmount}`, 0x8cff66, 0xe4ffd8);
       // this._flashEgg(0x9ccc65);
-      this._showToast(`Fortune found! +RM${winAmount}`, 'success');
+      this._showToast(
+        bonus ? `Bonus hit! +RM${winAmount}` : `Fortune found! +RM${winAmount}`,
+        'success',
+      );
     } else {
       if (!state) {
         this._removeActiveEgg();
       }
       this.lastBonus = false;
-      this.lastResultText = 'Try again later';
+      this.lastResultText = bonus ? 'Bonus round missed' : 'Try again later';
         if (!state) {
           this._recordHistory(0, egg, { chargeAmount, actionType: 'lose' });
         }
         this._setStatus('', 0xffccbc, 0x2d0d0d);
         // this._flashEgg(0xff7043);
-        this._showToast('Try again later', 'error');
+        this._showToast(bonus ? 'Bonus round missed' : 'Try again later', 'error');
       }
       if (state) {
         this.applyServerState(state);
       }
-      this._showResultModalAndReset(outcome === 'win', winAmount, egg);
+      this._showResultModalAndReset(outcome === 'win', winAmount, egg, Boolean(bonus));
     } else {
       this.lastBonus = false;
       if (state) {
@@ -1189,22 +1160,6 @@ export class AppGame {
     });
   }
 
-  _handleCashout() {
-    const egg = this._getActiveEgg();
-    if (!egg) {
-      this._showToast('Select an egg first.', 'info');
-      return;
-    }
-    this.lockUI(true);
-    this.onAction?.({
-      action: 'cashout',
-      betAmount: egg.bet,
-      eggId: egg.uid,
-      eggType: egg.id,
-      tryIndex: egg.tries ?? 0,
-    });
-  }
-
   _handleBuy() {
     if (this.activeEggUid) return;
     if (this.storedEggs.length >= this.maxStored) {
@@ -1229,12 +1184,12 @@ export class AppGame {
     this._enterPlay(newEgg, 'stored');
   }
 
-  _showResultModalAndReset(didWin, winAmount, egg) {
+  _showResultModalAndReset(didWin, winAmount, egg, didBonus = false) {
     const amountText = typeof winAmount === 'number' ? winAmount : 0;
-    const title = didWin ? 'Congratulations' : 'Out Of Luck';
+    const title = didWin ? (didBonus ? 'Bonus Hit' : 'Congratulations') : 'Out Of Luck';
     const message = didWin
-      ? `You have won RM${amountText}.`
-      : 'Try again next time!';
+      ? (didBonus ? `Bonus success! You have won RM${amountText}.` : `You have won RM${amountText}.`)
+      : (didBonus ? 'Bonus round missed. Try again next time!' : 'Try again next time!');
     this._showModal(title, message);
     if (this.modalCloseX) {
       this.modalCloseX.style.display = 'none';
@@ -1730,9 +1685,12 @@ export class AppGame {
       'On the game page, choose the egg you want to buy from the tabs.',
       'Use the required UCoins to buy the selected egg.',
       'After buying, crack the egg to try your luck.',
+      'A bonus round can appear before a crack. If that crack succeeds, the reward is doubled.',
       'If the crack is successful, the egg moves to the next level.',
       'Each time you crack again, the corresponding UCoins will be deducted.',
       'If the crack fails, you need to buy a new egg to start again.',
+      'To redeem an egg, take a screenshot and send it to customer support for verification.',
+      'After customer support processes the request, the redeemed record will appear in History automatically.',
     ];
 
     this.modalBody.innerHTML = '';
@@ -2833,7 +2791,6 @@ export class AppGame {
     const egg = this._getActiveEgg();
     const tries = egg?.tries ?? 0;
     const canCrack = !!egg && tries < this.maxCracks;
-    const canCashout = tries > 0;
     const hideHome = tries > 0;
     const disableAlpha = 0.5;
     const disableMode = 'none';
@@ -2844,13 +2801,8 @@ export class AppGame {
     };
 
     setState(this.actionButton, canCrack);
-    setState(this.cashoutButton, !!egg && canCashout);
 
     if (this.actionButton) this.actionButton.visible = !!egg;
-    if (this.cashoutButton) {
-      this.cashoutButton.visible = false;
-      this.cashoutButton.eventMode = disableMode;
-    }
     if (this.homeButtonEl) {
       this.homeButtonEl.style.display = !hideHome && this.mode === 'play' ? 'inline-flex' : 'none';
       this.homeButtonEl.disabled = hideHome || this.isLocked;
