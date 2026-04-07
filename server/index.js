@@ -14,8 +14,12 @@ const MAX_STORED = 3;
 const DEFAULT_BALANCE = 1000;
 const FORCE_BONUS = process.env.FORCE_BONUS === 'true';
 const FORCE_WIN = process.env.FORCE_WIN === 'true';
+const ADMIN_API_KEY = (process.env.ADMIN_API_KEY || '').trim();
+const DEFAULT_WIN_RATE = 0.5;
+const DEFAULT_BONUS_RATE = 0.01;
 const LOG_PATH = process.env.LOG_PATH || path.resolve('server', 'logs', 'transactions.jsonl');
 const STATE_PATH = process.env.STATE_PATH || path.resolve('server', 'data', 'state.json');
+const GAME_CONFIG_PATH = process.env.GAME_CONFIG_PATH || path.resolve('server', 'data', 'game-config.json');
 const EGG_CONFIG = [
   { id: 'gold', label: 'Gold Egg', bet: 100 },
   { id: 'premium', label: 'Premium Egg', bet: 1000 },
@@ -26,6 +30,12 @@ const EGG_CONFIG_BY_ID = EGG_CONFIG.reduce((acc, egg) => {
 }, {});
 
 const userStates = new Map();
+const gameConfig = {
+  winRate: DEFAULT_WIN_RATE,
+  bonusRate: DEFAULT_BONUS_RATE,
+  updatedAt: null,
+  updatedBy: 'system',
+};
 
 const serializeUserState = (userState) => ({
   balance: userState.balance,
@@ -80,6 +90,59 @@ const persistStateStore = async () => {
     await fs.writeFile(STATE_PATH, JSON.stringify(snapshot, null, 2), 'utf8');
   } catch (error) {
     console.warn('Failed to persist state store:', error);
+  }
+};
+
+const normalizeRate = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return { ok: false, message: 'Rate must be a finite number.' };
+  }
+  const normalized = numeric > 1 && numeric <= 100 ? numeric / 100 : numeric;
+  if (normalized < 0 || normalized > 1) {
+    return { ok: false, message: 'Rate must be between 0 and 1 (or 0 to 100 as a percentage).' };
+  }
+  return { ok: true, value: Number(normalized.toFixed(6)) };
+};
+
+const serializeGameConfig = () => ({
+  winRate: gameConfig.winRate,
+  bonusRate: gameConfig.bonusRate,
+  updatedAt: gameConfig.updatedAt,
+  updatedBy: gameConfig.updatedBy,
+  forceWin: FORCE_WIN,
+  forceBonus: FORCE_BONUS,
+});
+
+const hydrateGameConfig = (raw = {}) => {
+  const nextWinRate = normalizeRate(raw?.winRate);
+  const nextBonusRate = normalizeRate(raw?.bonusRate);
+  gameConfig.winRate = nextWinRate.ok ? nextWinRate.value : DEFAULT_WIN_RATE;
+  gameConfig.bonusRate = nextBonusRate.ok ? nextBonusRate.value : DEFAULT_BONUS_RATE;
+  gameConfig.updatedAt = typeof raw?.updatedAt === 'string' ? raw.updatedAt : null;
+  gameConfig.updatedBy = typeof raw?.updatedBy === 'string' && raw.updatedBy.trim()
+    ? raw.updatedBy.trim()
+    : 'system';
+};
+
+const loadGameConfig = async () => {
+  try {
+    const content = await fs.readFile(GAME_CONFIG_PATH, 'utf8');
+    const parsed = JSON.parse(content);
+    hydrateGameConfig(parsed || {});
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('Failed to load game config:', error);
+    }
+  }
+};
+
+const persistGameConfig = async () => {
+  try {
+    await fs.mkdir(path.dirname(GAME_CONFIG_PATH), { recursive: true });
+    await fs.writeFile(GAME_CONFIG_PATH, JSON.stringify(serializeGameConfig(), null, 2), 'utf8');
+  } catch (error) {
+    console.warn('Failed to persist game config:', error);
   }
 };
 
@@ -198,6 +261,10 @@ const buildResponse = (userState, payload = {}) => ({
   balance: userState.balance,
   serverTime: new Date().toISOString(),
   state: serializeState(userState),
+  rates: {
+    winRate: gameConfig.winRate,
+    bonusRate: gameConfig.bonusRate,
+  },
   ...payload,
 });
 
@@ -220,6 +287,67 @@ const markCurrentStoredIfNeeded = (userState, nextEggUid = null) => {
   return currentEgg;
 };
 
+const requireAdminAuth = (req, res, next) => {
+  if (!ADMIN_API_KEY) {
+    return next();
+  }
+  const requestKey = (req.get('x-admin-key') || '').trim();
+  if (requestKey !== ADMIN_API_KEY) {
+    return res.status(401).json({ apiStatus: 'error', message: 'Unauthorized admin request.' });
+  }
+  return next();
+};
+
+app.get('/admin/game-config', requireAdminAuth, (req, res) => {
+  res.json({
+    apiStatus: 'ok',
+    config: serializeGameConfig(),
+    serverTime: new Date().toISOString(),
+  });
+});
+
+app.put('/admin/game-config', requireAdminAuth, async (req, res) => {
+  const {
+    winRate,
+    bonusRate,
+    updatedBy = 'admin',
+  } = req.body || {};
+
+  if (typeof winRate === 'undefined' && typeof bonusRate === 'undefined') {
+    return res.status(400).json({
+      apiStatus: 'error',
+      message: 'At least one of winRate or bonusRate must be provided.',
+    });
+  }
+
+  if (typeof winRate !== 'undefined') {
+    const normalizedWinRate = normalizeRate(winRate);
+    if (!normalizedWinRate.ok) {
+      return res.status(400).json({ apiStatus: 'error', message: `winRate invalid: ${normalizedWinRate.message}` });
+    }
+    gameConfig.winRate = normalizedWinRate.value;
+  }
+
+  if (typeof bonusRate !== 'undefined') {
+    const normalizedBonusRate = normalizeRate(bonusRate);
+    if (!normalizedBonusRate.ok) {
+      return res.status(400).json({ apiStatus: 'error', message: `bonusRate invalid: ${normalizedBonusRate.message}` });
+    }
+    gameConfig.bonusRate = normalizedBonusRate.value;
+  }
+
+  gameConfig.updatedAt = new Date().toISOString();
+  gameConfig.updatedBy = typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'admin';
+  await persistGameConfig();
+
+  return res.json({
+    apiStatus: 'ok',
+    message: 'Game rate config updated. Applied globally to all players.',
+    config: serializeGameConfig(),
+    serverTime: new Date().toISOString(),
+  });
+});
+
 app.post('/game/init', (req, res) => {
   const { userId = '', lang = 'en' } = req.body || {};
   const userState = getUserState(userId);
@@ -234,6 +362,10 @@ app.post('/game/init', (req, res) => {
       currency: 'RM',
       maxStored: MAX_STORED,
       maxCracks: MAX_CRACKS,
+      rates: {
+        winRate: gameConfig.winRate,
+        bonusRate: gameConfig.bonusRate,
+      },
     },
     state: serializeState(userState),
     serverTime: new Date().toISOString(),
@@ -480,10 +612,10 @@ app.post('/game/action', (req, res) => {
   }
 
   userState.activeEggUid = egg.uid;
-  const baseWinChance = 0.5 / Math.pow(2, Math.max(0, serverTryIndex));
-  const bonusChance = 0.01;
-  const didBonus = FORCE_BONUS ? true : Math.random() < bonusChance;
-  const didWin = FORCE_WIN ? true : Math.random() < baseWinChance;
+  const winRate = gameConfig.winRate;
+  const bonusRate = gameConfig.bonusRate;
+  const didBonus = FORCE_BONUS ? true : Math.random() < bonusRate;
+  const didWin = FORCE_WIN ? true : Math.random() < winRate;
   const winAmount = didWin ? effectiveBetAmount * (didBonus ? 2 : 1) : 0;
   const chargeAmount = egg?.hasCracked ? effectiveBetAmount : 0;
   userState.balance = Math.max(0, userState.balance + winAmount - chargeAmount);
@@ -533,6 +665,8 @@ app.post('/game/action', (req, res) => {
     betAmount,
     effectiveBetAmount,
     chargeAmount,
+    winRate,
+    bonusRate,
     result: response.result,
     status: response.status,
     winAmount: response.winAmount,
@@ -544,7 +678,7 @@ app.post('/game/action', (req, res) => {
   return res.json(response);
 });
 
-await loadStateStore();
+await Promise.all([loadStateStore(), loadGameConfig()]);
 
 app.listen(PORT, () => {
   console.log(`Golden Eggs microservice listening on http://localhost:${PORT}`);
