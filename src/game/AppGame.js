@@ -31,6 +31,20 @@ export class AppGame {
     this.storedEggs = [];
     this.maxStored = 3;
     this.currency = '';
+    this.infoConfig = {
+      title: 'How To Play',
+      steps: [
+        'On the game page, choose the egg you want to buy from the tabs.',
+        'Use the required UCoins to buy the selected egg. The purchase price covers your first crack attempt.',
+        'After buying, crack the egg to try your luck.',
+        'A bonus round can appear before a crack. If that crack succeeds, the reward is doubled.',
+        'If the crack is successful, the egg moves to the next level.',
+        'After a successful crack, the next crack will deduct the UCoins required for that level.',
+        'If the crack fails, you need to buy a new egg to start again.',
+        'To redeem an egg, take a screenshot and send it to customer support for verification.',
+        'After customer support processes the request, the redeemed record will appear in History automatically.',
+      ],
+    };
     this.eggCatalog = [
       { id: 'gold', label: 'Gold Egg', bet: 100 },
       { id: 'premium', label: 'Premium Egg', bet: 1000 },
@@ -421,8 +435,15 @@ export class AppGame {
   _formatTabLabel(template) {
     const amount = typeof template?.bet === 'number' ? template.bet : 0;
     const label = template?.label || template?.id || 'Egg';
-    const currency = this.currency || 'RM';
-    return `${label} - ${currency}${amount}`;
+    return `${label} - ${this._formatMoney(amount)}`;
+  }
+
+  _getCurrency() {
+    return this.currency || 'RM';
+  }
+
+  _formatMoney(amount) {
+    return `${this._getCurrency()}${amount ?? 0}`;
   }
 
   _getTabImage(tabId, isActive) {
@@ -459,44 +480,63 @@ export class AppGame {
       borderRadius: '14px',
       zIndex: '9',
       width: 'fit-content',
+      maxWidth: 'calc(100vw - 24px)',
+      overflowX: 'auto',
+      scrollbarWidth: 'none',
     });
-
-    const slots = [];
-    for (let i = 0; i < 3; i += 1) {
-      const slot = document.createElement('div');
-      Object.assign(slot.style, {
-        width: '150px',
-        minHeight: '54px',
-        borderRadius: '12px',
-        border: 'none',
-        color: '#ffe082',
-        fontWeight: '700',
-        fontSize: '13px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '6px 8px',
-        textAlign: 'center',
-        backgroundImage: 'url("/assets/interface/empty-1.png")',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-        backgroundSize: '100% 100%',
-      });
-      bar.appendChild(slot);
-      slots.push(slot);
-    }
 
     this.containerEl.appendChild(bar);
     this.storedBarRoot = bar;
-    this.storedSlots = slots;
+    this.storedSlots = [];
+    this._syncStoredSlots();
     this._updateStoredBarLayout();
     this._renderStoredBar();
   }
 
+  _createStoredSlot() {
+    const slot = document.createElement('div');
+    Object.assign(slot.style, {
+      width: '150px',
+      minHeight: '54px',
+      borderRadius: '12px',
+      border: 'none',
+      color: '#ffe082',
+      fontWeight: '700',
+      fontSize: '13px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '6px 8px',
+      textAlign: 'center',
+      backgroundImage: 'url("/assets/interface/empty-1.png")',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+      backgroundSize: '100% 100%',
+      flex: '0 0 auto',
+    });
+    return slot;
+  }
+
+  _syncStoredSlots() {
+    if (!this.storedBarRoot) return;
+    const targetCount = Math.max(1, Number(this.maxStored) || 3);
+    this.storedSlots = this.storedSlots || [];
+    while (this.storedSlots.length < targetCount) {
+      const slot = this._createStoredSlot();
+      this.storedBarRoot.appendChild(slot);
+      this.storedSlots.push(slot);
+    }
+    while (this.storedSlots.length > targetCount) {
+      const slot = this.storedSlots.pop();
+      slot?.remove();
+    }
+  }
+
   _renderStoredBar() {
     if (!this.storedSlots) return;
-    const eggs = this.storedEggs.slice(0, 3);
+    this._syncStoredSlots();
+    const eggs = this.storedEggs.slice(0, this.maxStored);
     this.storedSlots.forEach((slot, index) => {
       const egg = eggs[index];
       slot.innerHTML = '';
@@ -514,7 +554,7 @@ export class AppGame {
       const label = document.createElement('div');
       const hasWon = (egg.tries ?? 0) > 0 && typeof egg.lastWinAmount === 'number' && egg.lastWinAmount > 0;
       label.textContent = hasWon
-        ? `${egg.label ?? egg.id ?? 'Egg'} RM${egg.lastWinAmount}`
+        ? `${egg.label ?? egg.id ?? 'Egg'} ${this._formatMoney(egg.lastWinAmount)}`
         : `${egg.label ?? egg.id ?? 'Egg'}`;
       label.style.color = '#fffaf0';
       label.style.marginBottom = '6px';
@@ -914,6 +954,20 @@ export class AppGame {
     this._initTabEggs();
     this.maxStored = typeof config.maxStored === 'number' ? config.maxStored : 3;
     this.maxCracks = typeof config.maxCracks === 'number' ? config.maxCracks : this.maxCracks;
+    if (config.info && typeof config.info === 'object') {
+      const title = typeof config.info.title === 'string' && config.info.title.trim()
+        ? config.info.title.trim()
+        : this.infoConfig.title;
+      const steps = Array.isArray(config.info.steps)
+        ? config.info.steps
+          .map((step) => (typeof step === 'string' ? step.trim() : ''))
+          .filter(Boolean)
+        : [];
+      if (steps.length > 0) {
+        this.infoConfig = { title, steps };
+      }
+    }
+    this._syncStoredSlots();
     this._renderEggTabs();
     this._refreshEggTabs();
     this._renderHomeDom();
@@ -1095,14 +1149,14 @@ export class AppGame {
             egg.bet = doubled;
           }
         }
-        this.lastResultText = bonus ? `Bonus won RM${winAmount}` : `Won RM${winAmount}`;
+        this.lastResultText = bonus ? `Bonus won ${this._formatMoney(winAmount)}` : `Won ${this._formatMoney(winAmount)}`;
         if (!state) {
           this._recordHistory(1, egg, { winAmount, chargeAmount, actionType: 'win' });
         }
       // this._setStatus(`Fortune found! +${winAmount}`, 0x8cff66, 0xe4ffd8);
       // this._flashEgg(0x9ccc65);
       this._showToast(
-        bonus ? `Bonus hit! +RM${winAmount}` : `Fortune found! +RM${winAmount}`,
+        bonus ? `Bonus hit! +${this._formatMoney(winAmount)}` : `Fortune found! +${this._formatMoney(winAmount)}`,
         'success',
       );
     } else {
@@ -1188,7 +1242,7 @@ export class AppGame {
     const amountText = typeof winAmount === 'number' ? winAmount : 0;
     const title = didWin ? (didBonus ? 'Bonus Hit' : 'Congratulations') : 'Out Of Luck';
     const message = didWin
-      ? (didBonus ? `Bonus success! You have won RM${amountText}.` : `You have won RM${amountText}.`)
+      ? (didBonus ? `Bonus success! You have won ${this._formatMoney(amountText)}.` : `You have won ${this._formatMoney(amountText)}.`)
       : (didBonus ? 'Bonus round missed. Try again next time!' : 'Try again next time!');
     this._showModal(title, message);
     if (this.modalCloseX) {
@@ -1393,8 +1447,8 @@ export class AppGame {
         this.storedEggs,
         (group) => this._enterPlay(this._pickEggFromGroup(this.storedEggs, group), 'stored'),
         {
-          emptyText: 'You can store up to 3 eggs for later.',
-          columns: 'repeat(3, minmax(220px, 1fr))',
+          emptyText: `You can store up to ${this.maxStored} eggs for later.`,
+          columns: `repeat(${Math.min(this.maxStored, 3)}, minmax(220px, 1fr))`,
           horizontalOnMobile: true,
         },
       ),
@@ -1419,7 +1473,7 @@ export class AppGame {
       ? egg.lastWinAmount
       : null;
     const pricePart =
-      egg && typeof displayAmount === 'number' && displayAmount > 0 ? ` RM${displayAmount}` : '';
+      egg && typeof displayAmount === 'number' && displayAmount > 0 ? ` ${this._formatMoney(displayAmount)}` : '';
     const label = egg ? `${egg.label ?? egg.id ?? 'Egg'}${pricePart}` : '';
     this.eggLabel.text = label;
     this.eggLabel.position.set(width / 2, playMetrics.labelY);
@@ -1483,7 +1537,7 @@ export class AppGame {
     if (!this.buyButton || !this.buyButton._labelText) return;
     const template = this._getSelectedEggTemplate();
     const amount = template.bet ?? 0;
-    this.buyButton._labelText.text = `Buy ${template.label} RM${amount}`;
+    this.buyButton._labelText.text = `Buy ${template.label} ${this._formatMoney(amount)}`;
     const buyWidth = this.buyButton._baseWidth ?? this.buyButton.width;
     const buyHeight = this.buyButton._baseHeight ?? this.buyButton.height;
     this.buyButton._labelText.position.set(buyWidth / 2, buyHeight / 2);
@@ -1554,7 +1608,7 @@ export class AppGame {
 
     if (group.bet !== undefined) {
       const price = document.createElement('div');
-      price.textContent = `RM${group.bet}`;
+      price.textContent = this._formatMoney(group.bet);
       Object.assign(price.style, {
         color: '#ffd54f',
         fontWeight: '700',
@@ -1678,20 +1732,12 @@ export class AppGame {
   }
 
   _showInfoModal() {
-    this._showModal('How To Play', '');
+    this._showModal(this.infoConfig.title || 'How To Play', '');
     if (!this.modalBody) return;
 
-    const steps = [
-      'On the game page, choose the egg you want to buy from the tabs.',
-      'Use the required UCoins to buy the selected egg. The purchase price covers your first crack attempt.',
-      'After buying, crack the egg to try your luck.',
-      'A bonus round can appear before a crack. If that crack succeeds, the reward is doubled.',
-      'If the crack is successful, the egg moves to the next level.',
-      'After a successful crack, the next crack will deduct the UCoins required for that level.',
-      'If the crack fails, you need to buy a new egg to start again.',
-      'To redeem an egg, take a screenshot and send it to customer support for verification.',
-      'After customer support processes the request, the redeemed record will appear in History automatically.',
-    ];
+    const steps = Array.isArray(this.infoConfig.steps) && this.infoConfig.steps.length > 0
+      ? this.infoConfig.steps
+      : ['Please contact support for game instructions.'];
 
     this.modalBody.innerHTML = '';
     this.modalBody.style.display = 'flex';
@@ -1885,7 +1931,7 @@ export class AppGame {
         case 'retrieve':
           return 'Retrieved stored egg';
         case 'redeemed':
-          return entry?.winAmount ? `Redeemed RM${entry.winAmount}` : 'Redeemed';
+          return entry?.winAmount ? `Redeemed ${this._formatMoney(entry.winAmount)}` : 'Redeemed';
         case 'win':
           return crackText ? `${crackText} • Win` : 'Win';
         case 'lose':
@@ -2033,7 +2079,7 @@ export class AppGame {
         const prizeAmount = typeof entry?.winAmount === 'number' ? entry.winAmount : 0;
         if (prizeAmount > 0 && (entry?.actionType === 'win' || entry?.actionType === 'redeemed')) {
           const prizeLine = document.createElement('div');
-          prizeLine.textContent = `Prize RM${prizeAmount}`;
+          prizeLine.textContent = `Prize ${this._formatMoney(prizeAmount)}`;
           Object.assign(prizeLine.style, {
             fontSize: '15px',
             color: 'rgb(32, 244, 12)',
@@ -2063,7 +2109,7 @@ export class AppGame {
           ? entry.betAmount
           : (typeof entry?.chargeAmount === 'number' ? entry.chargeAmount : 0);
         if (shouldShowCost && costAmount > 0) {
-          costLine.textContent = `Cost RM${costAmount}`;
+          costLine.textContent = `Cost ${this._formatMoney(costAmount)}`;
           Object.assign(costLine.style, {
             fontSize: '12px',
             color: 'rgba(255, 255, 255, 0.72)',

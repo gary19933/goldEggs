@@ -8,31 +8,50 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = Number(process.env.PORT) || 3001;
-const MAX_CRACKS = 12;
 const MAX_HISTORY = 200;
-const MAX_STORED = 3;
 const DEFAULT_BALANCE = 1000;
 const FORCE_BONUS = process.env.FORCE_BONUS === 'true';
 const FORCE_WIN = process.env.FORCE_WIN === 'true';
 const ADMIN_API_KEY = (process.env.ADMIN_API_KEY || '').trim();
 const DEFAULT_WIN_RATE = 0.5;
 const DEFAULT_BONUS_RATE = 0.01;
+const DEFAULT_MAX_CRACKS = 12;
+const DEFAULT_MAX_STORED = 3;
+const DEFAULT_CURRENCY = 'RM';
 const LOG_PATH = process.env.LOG_PATH || path.resolve('server', 'logs', 'transactions.jsonl');
 const STATE_PATH = process.env.STATE_PATH || path.resolve('server', 'data', 'state.json');
 const GAME_CONFIG_PATH = process.env.GAME_CONFIG_PATH || path.resolve('server', 'data', 'game-config.json');
-const EGG_CONFIG = [
+const DEFAULT_EGG_CONFIG = [
   { id: 'gold', label: 'Gold Egg', bet: 100 },
   { id: 'premium', label: 'Premium Egg', bet: 1000 },
 ];
-const EGG_CONFIG_BY_ID = EGG_CONFIG.reduce((acc, egg) => {
-  acc[egg.id] = egg;
-  return acc;
-}, {});
+const DEFAULT_INFO = {
+  title: 'How To Play',
+  steps: [
+    'On the game page, choose the egg you want to buy from the tabs.',
+    'Use the required UCoins to buy the selected egg. The purchase price covers your first crack attempt.',
+    'After buying, crack the egg to try your luck.',
+    'A bonus round can appear before a crack. If that crack succeeds, the reward is doubled.',
+    'If the crack is successful, the egg moves to the next level.',
+    'After a successful crack, the next crack will deduct the UCoins required for that level.',
+    'If the crack fails, you need to buy a new egg to start again.',
+    'To redeem an egg, take a screenshot and send it to customer support for verification.',
+    'After customer support processes the request, the redeemed record will appear in History automatically.',
+  ],
+};
 
 const userStates = new Map();
 const gameConfig = {
   winRate: DEFAULT_WIN_RATE,
   bonusRate: DEFAULT_BONUS_RATE,
+  eggs: DEFAULT_EGG_CONFIG.map((egg) => ({ ...egg })),
+  currency: DEFAULT_CURRENCY,
+  maxStored: DEFAULT_MAX_STORED,
+  maxCracks: DEFAULT_MAX_CRACKS,
+  info: {
+    title: DEFAULT_INFO.title,
+    steps: [...DEFAULT_INFO.steps],
+  },
   updatedAt: null,
   updatedBy: 'system',
 };
@@ -105,9 +124,78 @@ const normalizeRate = (value) => {
   return { ok: true, value: Number(normalized.toFixed(6)) };
 };
 
+const normalizePositiveInteger = (value, fieldName, { min = 1, max = 100 } = {}) => {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric)) {
+    return { ok: false, message: `${fieldName} must be a whole number.` };
+  }
+  if (numeric < min || numeric > max) {
+    return { ok: false, message: `${fieldName} must be between ${min} and ${max}.` };
+  }
+  return { ok: true, value: numeric };
+};
+
+const normalizeEggConfig = (value) => {
+  if (!Array.isArray(value) || value.length === 0) {
+    return { ok: false, message: 'eggs must be a non-empty array.' };
+  }
+
+  const seenIds = new Set();
+  const eggs = [];
+  for (const rawEgg of value) {
+    const id = typeof rawEgg?.id === 'string' ? rawEgg.id.trim() : '';
+    const label = typeof rawEgg?.label === 'string' ? rawEgg.label.trim() : '';
+    const bet = Number(rawEgg?.bet);
+    if (!id) {
+      return { ok: false, message: 'Every egg needs a non-empty id.' };
+    }
+    if (seenIds.has(id)) {
+      return { ok: false, message: `Duplicate egg id: ${id}.` };
+    }
+    if (!Number.isFinite(bet) || bet <= 0) {
+      return { ok: false, message: `Egg ${id} bet must be greater than 0.` };
+    }
+    seenIds.add(id);
+    eggs.push({
+      id,
+      label: label || id,
+      bet: Number(bet.toFixed(2)),
+    });
+  }
+
+  return { ok: true, value: eggs };
+};
+
+const normalizeInfoConfig = (value) => {
+  if (!value || typeof value !== 'object') {
+    return { ok: false, message: 'info must be an object.' };
+  }
+  const title = typeof value.title === 'string' && value.title.trim()
+    ? value.title.trim()
+    : DEFAULT_INFO.title;
+  if (!Array.isArray(value.steps)) {
+    return { ok: false, message: 'info.steps must be an array of text strings.' };
+  }
+  const steps = value.steps
+    .map((step) => (typeof step === 'string' ? step.trim() : ''))
+    .filter(Boolean);
+  if (steps.length === 0) {
+    return { ok: false, message: 'info.steps must contain at least one text string.' };
+  }
+  return { ok: true, value: { title, steps } };
+};
+
 const serializeGameConfig = () => ({
   winRate: gameConfig.winRate,
   bonusRate: gameConfig.bonusRate,
+  eggs: gameConfig.eggs.map((egg) => ({ ...egg })),
+  currency: gameConfig.currency,
+  maxStored: gameConfig.maxStored,
+  maxCracks: gameConfig.maxCracks,
+  info: {
+    title: gameConfig.info.title,
+    steps: [...gameConfig.info.steps],
+  },
   updatedAt: gameConfig.updatedAt,
   updatedBy: gameConfig.updatedBy,
   forceWin: FORCE_WIN,
@@ -117,8 +205,21 @@ const serializeGameConfig = () => ({
 const hydrateGameConfig = (raw = {}) => {
   const nextWinRate = normalizeRate(raw?.winRate);
   const nextBonusRate = normalizeRate(raw?.bonusRate);
+  const nextEggs = normalizeEggConfig(raw?.eggs);
+  const nextMaxStored = normalizePositiveInteger(raw?.maxStored, 'maxStored', { min: 1, max: 12 });
+  const nextMaxCracks = normalizePositiveInteger(raw?.maxCracks, 'maxCracks', { min: 1, max: DEFAULT_MAX_CRACKS });
+  const nextInfo = normalizeInfoConfig(raw?.info);
   gameConfig.winRate = nextWinRate.ok ? nextWinRate.value : DEFAULT_WIN_RATE;
   gameConfig.bonusRate = nextBonusRate.ok ? nextBonusRate.value : DEFAULT_BONUS_RATE;
+  gameConfig.eggs = nextEggs.ok ? nextEggs.value : DEFAULT_EGG_CONFIG.map((egg) => ({ ...egg }));
+  gameConfig.currency = typeof raw?.currency === 'string' && raw.currency.trim()
+    ? raw.currency.trim()
+    : DEFAULT_CURRENCY;
+  gameConfig.maxStored = nextMaxStored.ok ? nextMaxStored.value : DEFAULT_MAX_STORED;
+  gameConfig.maxCracks = nextMaxCracks.ok ? nextMaxCracks.value : DEFAULT_MAX_CRACKS;
+  gameConfig.info = nextInfo.ok
+    ? nextInfo.value
+    : { title: DEFAULT_INFO.title, steps: [...DEFAULT_INFO.steps] };
   gameConfig.updatedAt = typeof raw?.updatedAt === 'string' ? raw.updatedAt : null;
   gameConfig.updatedBy = typeof raw?.updatedBy === 'string' && raw.updatedBy.trim()
     ? raw.updatedBy.trim()
@@ -155,10 +256,15 @@ const buildStatus = (result) => {
 
 const buildLevel = (tryIndex) => {
   if (typeof tryIndex !== 'number' || Number.isNaN(tryIndex)) return 1;
-  return Math.min(Math.max(tryIndex + 1, 1), MAX_CRACKS);
+  return Math.min(Math.max(tryIndex + 1, 1), gameConfig.maxCracks);
 };
 
-const getEggTemplate = (eggType = 'gold') => EGG_CONFIG_BY_ID[eggType] || EGG_CONFIG[0];
+const getEggConfigById = () => gameConfig.eggs.reduce((acc, egg) => {
+  acc[egg.id] = egg;
+  return acc;
+}, {});
+
+const getEggTemplate = (eggType = 'gold') => getEggConfigById()[eggType] || gameConfig.eggs[0];
 
 const getUserState = (userId = '') => {
   const key = userId || 'guest';
@@ -222,11 +328,11 @@ const serializeState = (userState) => {
 };
 
 const resolveBetAmount = (eggType, tryIndex, fallbackBetAmount = 0) => {
-  const baseBet = EGG_CONFIG_BY_ID[eggType]?.bet;
+  const baseBet = getEggConfigById()[eggType]?.bet;
   if (typeof baseBet !== 'number' || Number.isNaN(baseBet)) {
     return Math.max(0, Number(fallbackBetAmount) || 0);
   }
-  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, MAX_CRACKS));
+  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, gameConfig.maxCracks));
   return baseBet * Math.pow(2, safeTryIndex);
 };
 
@@ -310,13 +416,32 @@ app.put('/admin/game-config', requireAdminAuth, async (req, res) => {
   const {
     winRate,
     bonusRate,
+    eggs,
+    currency,
+    maxStored,
+    maxCracks,
+    info,
+    infoTitle,
+    infoSteps,
     updatedBy = 'admin',
   } = req.body || {};
 
-  if (typeof winRate === 'undefined' && typeof bonusRate === 'undefined') {
+  const hasUpdates = [
+    winRate,
+    bonusRate,
+    eggs,
+    currency,
+    maxStored,
+    maxCracks,
+    info,
+    infoTitle,
+    infoSteps,
+  ].some((value) => typeof value !== 'undefined');
+
+  if (!hasUpdates) {
     return res.status(400).json({
       apiStatus: 'error',
-      message: 'At least one of winRate or bonusRate must be provided.',
+      message: 'At least one game config field must be provided.',
     });
   }
 
@@ -336,13 +461,62 @@ app.put('/admin/game-config', requireAdminAuth, async (req, res) => {
     gameConfig.bonusRate = normalizedBonusRate.value;
   }
 
+  if (typeof eggs !== 'undefined') {
+    const normalizedEggs = normalizeEggConfig(eggs);
+    if (!normalizedEggs.ok) {
+      return res.status(400).json({ apiStatus: 'error', message: `eggs invalid: ${normalizedEggs.message}` });
+    }
+    gameConfig.eggs = normalizedEggs.value;
+  }
+
+  if (typeof currency !== 'undefined') {
+    if (typeof currency !== 'string' || !currency.trim()) {
+      return res.status(400).json({ apiStatus: 'error', message: 'currency must be a non-empty string.' });
+    }
+    gameConfig.currency = currency.trim();
+  }
+
+  if (typeof maxStored !== 'undefined') {
+    const normalizedMaxStored = normalizePositiveInteger(maxStored, 'maxStored', { min: 1, max: 12 });
+    if (!normalizedMaxStored.ok) {
+      return res.status(400).json({ apiStatus: 'error', message: normalizedMaxStored.message });
+    }
+    gameConfig.maxStored = normalizedMaxStored.value;
+  }
+
+  if (typeof maxCracks !== 'undefined') {
+    const normalizedMaxCracks = normalizePositiveInteger(maxCracks, 'maxCracks', { min: 1, max: DEFAULT_MAX_CRACKS });
+    if (!normalizedMaxCracks.ok) {
+      return res.status(400).json({ apiStatus: 'error', message: normalizedMaxCracks.message });
+    }
+    gameConfig.maxCracks = normalizedMaxCracks.value;
+  }
+
+  if (typeof info !== 'undefined') {
+    const normalizedInfo = normalizeInfoConfig(info);
+    if (!normalizedInfo.ok) {
+      return res.status(400).json({ apiStatus: 'error', message: `info invalid: ${normalizedInfo.message}` });
+    }
+    gameConfig.info = normalizedInfo.value;
+  } else if (typeof infoTitle !== 'undefined' || typeof infoSteps !== 'undefined') {
+    const nextInfo = {
+      title: typeof infoTitle === 'undefined' ? gameConfig.info.title : infoTitle,
+      steps: typeof infoSteps === 'undefined' ? gameConfig.info.steps : infoSteps,
+    };
+    const normalizedInfo = normalizeInfoConfig(nextInfo);
+    if (!normalizedInfo.ok) {
+      return res.status(400).json({ apiStatus: 'error', message: `info invalid: ${normalizedInfo.message}` });
+    }
+    gameConfig.info = normalizedInfo.value;
+  }
+
   gameConfig.updatedAt = new Date().toISOString();
   gameConfig.updatedBy = typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'admin';
   await persistGameConfig();
 
   return res.json({
     apiStatus: 'ok',
-    message: 'Game rate config updated. Applied globally to all players.',
+    message: 'Game config updated. Applied globally to all players.',
     config: serializeGameConfig(),
     serverTime: new Date().toISOString(),
   });
@@ -358,10 +532,14 @@ app.post('/game/init', (req, res) => {
     lang,
     balance: userState.balance,
     config: {
-      eggs: EGG_CONFIG,
-      currency: 'RM',
-      maxStored: MAX_STORED,
-      maxCracks: MAX_CRACKS,
+      eggs: gameConfig.eggs.map((egg) => ({ ...egg })),
+      currency: gameConfig.currency,
+      maxStored: gameConfig.maxStored,
+      maxCracks: gameConfig.maxCracks,
+      info: {
+        title: gameConfig.info.title,
+        steps: [...gameConfig.info.steps],
+      },
       rates: {
         winRate: gameConfig.winRate,
         bonusRate: gameConfig.bonusRate,
@@ -404,8 +582,8 @@ app.post('/game/action', (req, res) => {
     if (userState.activeEggUid) {
       return res.status(409).json({ apiStatus: 'error', message: 'Active egg must be stored or finished before buying a new egg.' });
     }
-    if (userState.eggs.size >= MAX_STORED) {
-      return res.status(409).json({ apiStatus: 'error', message: `Storage is full (${MAX_STORED}/${MAX_STORED}).` });
+    if (userState.eggs.size >= gameConfig.maxStored) {
+      return res.status(409).json({ apiStatus: 'error', message: `Storage is full (${gameConfig.maxStored}/${gameConfig.maxStored}).` });
     }
     if (userState.balance < purchaseCost) {
       return res.status(409).json({ apiStatus: 'error', message: 'Insufficient UCoins' });
@@ -621,13 +799,13 @@ app.post('/game/action', (req, res) => {
   userState.balance = Math.max(0, userState.balance + winAmount - chargeAmount);
 
   const result = didWin ? 'win' : 'lose';
-  const nextTryIndex = didWin ? Math.min(serverTryIndex + 1, MAX_CRACKS) : 0;
+  const nextTryIndex = didWin ? Math.min(serverTryIndex + 1, gameConfig.maxCracks) : 0;
   if (didWin) {
     egg.hasCracked = true;
     egg.tries = nextTryIndex;
     egg.lastWinAmount = winAmount;
     egg.bet = resolveBetAmount(egg.id, nextTryIndex, effectiveBetAmount * 2);
-    egg.isMaxed = nextTryIndex >= MAX_CRACKS;
+    egg.isMaxed = nextTryIndex >= gameConfig.maxCracks;
   } else {
     userState.eggs.delete(egg.uid);
     if (userState.activeEggUid === egg.uid) {

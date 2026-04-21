@@ -12,6 +12,20 @@ const EGG_CONFIG = [
   { id: 'gold', label: 'Gold Egg', bet: 100 },
   { id: 'premium', label: 'Premium Egg', bet: 1000 },
 ];
+const INFO_CONFIG = {
+  title: 'How To Play',
+  steps: [
+    'On the game page, choose the egg you want to buy from the tabs.',
+    'Use the required UCoins to buy the selected egg. The purchase price covers your first crack attempt.',
+    'After buying, crack the egg to try your luck.',
+    'A bonus round can appear before a crack. If that crack succeeds, the reward is doubled.',
+    'If the crack is successful, the egg moves to the next level.',
+    'After a successful crack, the next crack will deduct the UCoins required for that level.',
+    'If the crack fails, you need to buy a new egg to start again.',
+    'To redeem an egg, take a screenshot and send it to customer support for verification.',
+    'After customer support processes the request, the redeemed record will appear in History automatically.',
+  ],
+};
 const EGG_CONFIG_BY_ID = EGG_CONFIG.reduce((acc, egg) => {
   acc[egg.id] = egg;
   return acc;
@@ -283,6 +297,10 @@ function mockInit(payload = {}) {
       currency: 'RM',
       maxStored: MAX_STORED,
       maxCracks: MAX_CRACKS,
+      info: {
+        title: INFO_CONFIG.title,
+        steps: [...INFO_CONFIG.steps],
+      },
     },
     state: serializeState(userState),
     lang,
