@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    environment:
+      PORT: 3001
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      FORCE_WIN: ${FORCE_WIN:-false}
+      FORCE_BONUS: ${FORCE_BONUS:-false}
+      STATE_PATH: /app/server/data/state.json
+      LOG_PATH: /app/server/logs/transactions.jsonl
+      GAME_CONFIG_PATH: /app/server/data/game-config.json
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./server/data:/app/server/data
+      - ./server/logs:/app/server/logs
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Leave empty to call /game and /admin on the same frontend domain.
+        # Set to https://api.example.com if hosting the API separately.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"

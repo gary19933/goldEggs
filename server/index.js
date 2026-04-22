@@ -22,8 +22,8 @@ const LOG_PATH = process.env.LOG_PATH || path.resolve('server', 'logs', 'transac
 const STATE_PATH = process.env.STATE_PATH || path.resolve('server', 'data', 'state.json');
 const GAME_CONFIG_PATH = process.env.GAME_CONFIG_PATH || path.resolve('server', 'data', 'game-config.json');
 const DEFAULT_EGG_CONFIG = [
-  { id: 'gold', label: 'Gold Egg', bet: 100 },
-  { id: 'premium', label: 'Premium Egg', bet: 1000 },
+  { id: 'gold', name: 'Gold Egg', label: 'Gold Egg', bet: 100, levels: [100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600, 51200, 102400, 204800] },
+  { id: 'premium', name: 'Premium Egg', label: 'Premium Egg', bet: 1000, levels: [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000, 512000, 1024000, 2048000] },
 ];
 const DEFAULT_INFO = {
   title: 'How To Play',
@@ -144,22 +144,41 @@ const normalizeEggConfig = (value) => {
   const eggs = [];
   for (const rawEgg of value) {
     const id = typeof rawEgg?.id === 'string' ? rawEgg.id.trim() : '';
+    const name = typeof rawEgg?.name === 'string' ? rawEgg.name.trim() : '';
     const label = typeof rawEgg?.label === 'string' ? rawEgg.label.trim() : '';
-    const bet = Number(rawEgg?.bet);
+    const rawLevels = Array.isArray(rawEgg?.levels) ? rawEgg.levels : null;
+    const levels = rawLevels
+      ? rawLevels.map((level) => Number(level))
+      : null;
+    const bet = Number(rawEgg?.bet ?? levels?.[0]);
     if (!id) {
       return { ok: false, message: 'Every egg needs a non-empty id.' };
     }
     if (seenIds.has(id)) {
       return { ok: false, message: `Duplicate egg id: ${id}.` };
     }
+    if (levels) {
+      if (levels.length === 0 || levels.length > DEFAULT_MAX_CRACKS) {
+        return { ok: false, message: `Egg ${id} levels must contain 1 to ${DEFAULT_MAX_CRACKS} amounts.` };
+      }
+      const invalidLevel = levels.find((level) => !Number.isFinite(level) || level <= 0);
+      if (typeof invalidLevel !== 'undefined') {
+        return { ok: false, message: `Egg ${id} levels must contain only amounts greater than 0.` };
+      }
+    }
     if (!Number.isFinite(bet) || bet <= 0) {
-      return { ok: false, message: `Egg ${id} bet must be greater than 0.` };
+      return { ok: false, message: `Egg ${id} bet or first level amount must be greater than 0.` };
     }
     seenIds.add(id);
+    const normalizedLevels = levels
+      ? levels.map((level) => Number(level.toFixed(2)))
+      : null;
     eggs.push({
       id,
-      label: label || id,
-      bet: Number(bet.toFixed(2)),
+      name: name || label || id,
+      label: label || name || id,
+      bet: normalizedLevels?.[0] ?? Number(bet.toFixed(2)),
+      ...(normalizedLevels ? { levels: normalizedLevels } : {}),
     });
   }
 
@@ -291,8 +310,10 @@ const createEggState = (userState, eggType = 'gold', eggId) => {
   return {
     uid,
     id: template.id,
+    name: template.name,
     label: template.label,
-    bet: template.bet,
+    bet: resolveBetAmount(template.id, 0, template.bet),
+    levels: Array.isArray(template.levels) ? [...template.levels] : undefined,
     tries: 0,
     hasCracked: false,
     lastWinAmount: 0,
@@ -304,8 +325,10 @@ const createEggState = (userState, eggType = 'gold', eggId) => {
 const serializeEgg = (egg) => ({
   uid: egg.uid,
   id: egg.id,
+  name: egg.name,
   label: egg.label,
   bet: egg.bet,
+  ...(Array.isArray(egg.levels) ? { levels: [...egg.levels] } : {}),
   tries: egg.tries,
   hasCracked: egg.hasCracked,
   lastWinAmount: egg.lastWinAmount,
@@ -328,11 +351,16 @@ const serializeState = (userState) => {
 };
 
 const resolveBetAmount = (eggType, tryIndex, fallbackBetAmount = 0) => {
-  const baseBet = getEggConfigById()[eggType]?.bet;
+  const eggConfig = getEggConfigById()[eggType];
+  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, gameConfig.maxCracks));
+  if (Array.isArray(eggConfig?.levels) && eggConfig.levels.length > 0) {
+    const configuredAmount = eggConfig.levels[Math.min(safeTryIndex, eggConfig.levels.length - 1)];
+    return Number(configuredAmount) || 0;
+  }
+  const baseBet = eggConfig?.bet;
   if (typeof baseBet !== 'number' || Number.isNaN(baseBet)) {
     return Math.max(0, Number(fallbackBetAmount) || 0);
   }
-  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, gameConfig.maxCracks));
   return baseBet * Math.pow(2, safeTryIndex);
 };
 
@@ -544,6 +572,8 @@ app.post('/game/init', (req, res) => {
         winRate: gameConfig.winRate,
         bonusRate: gameConfig.bonusRate,
       },
+      forceWin: FORCE_WIN,
+      forceBonus: FORCE_BONUS,
     },
     state: serializeState(userState),
     serverTime: new Date().toISOString(),
@@ -579,9 +609,6 @@ app.post('/game/action', (req, res) => {
 
   if (action === 'buy') {
     const purchaseCost = resolveBetAmount(eggType, 0, betAmount);
-    if (userState.activeEggUid) {
-      return res.status(409).json({ apiStatus: 'error', message: 'Active egg must be stored or finished before buying a new egg.' });
-    }
     if (userState.eggs.size >= gameConfig.maxStored) {
       return res.status(409).json({ apiStatus: 'error', message: `Storage is full (${gameConfig.maxStored}/${gameConfig.maxStored}).` });
     }

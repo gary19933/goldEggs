@@ -46,8 +46,8 @@ export class AppGame {
       ],
     };
     this.eggCatalog = [
-      { id: 'gold', label: 'Gold Egg', bet: 100 },
-      { id: 'premium', label: 'Premium Egg', bet: 1000 },
+      { id: 'gold', name: 'Gold Egg', label: 'Gold Egg', bet: 100, levels: [100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600, 51200, 102400, 204800] },
+      { id: 'premium', name: 'Premium Egg', label: 'Premium Egg', bet: 1000, levels: [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000, 512000, 1024000, 2048000] },
     ];
 
     this.activeEggUid = null;
@@ -56,6 +56,7 @@ export class AppGame {
     this.isCracked = false;
     this.lastResultText = '';
     this.lastBonus = false;
+    this.forceBonus = false;
     this.history = [];
     this.activeTabId = 'gold';
     this.previousTabId = null;
@@ -180,7 +181,19 @@ export class AppGame {
     }, { width: 380, height: 90, color: 0x6d4c41, fontSize: 22 });
     this.playContainer.addChild(this.buyButton);
 
-    this.cashoutButton = null;
+    this.storeButton = this._createButton('Stored', () => {
+      if (this.isLocked) return;
+      this._handleStore();
+    }, { width: 150, height: 62, color: 0x5d4037, fontSize: 18 });
+    this.storeButton.visible = false;
+    this.playContainer.addChild(this.storeButton);
+
+    this.cashoutButton = this._createButton('Cash Out', () => {
+      if (this.isLocked) return;
+      this._handleCashOut();
+    }, { width: 170, height: 62, color: 0x2e7d32, fontSize: 18 });
+    this.cashoutButton.visible = false;
+    this.playContainer.addChild(this.cashoutButton);
 
     this.backButton = this._createButton('🏠', () => {
       if (this.isLocked) return;
@@ -192,8 +205,13 @@ export class AppGame {
 
     this._toggleMode('play');
     this._refreshStatusBadge();
-    this._drawEgg(renderer.width / 2, renderer.height * 0.4);
-    this._loadEggSprites();
+    this.egg.visible = false;
+    this.crackOverlay.visible = false;
+    this.eggSpriteContainer.visible = false;
+    this.eggLabel.visible = false;
+    if (this.eggLabelBg) {
+      this.eggLabelBg.visible = false;
+    }
   }
 
   _setupHomeDom() {
@@ -558,6 +576,10 @@ export class AppGame {
         : `${egg.label ?? egg.id ?? 'Egg'}`;
       label.style.color = '#fffaf0';
       label.style.marginBottom = '6px';
+      label.style.width = '100%';
+      label.style.overflow = 'hidden';
+      label.style.textOverflow = 'ellipsis';
+      label.style.whiteSpace = 'nowrap';
 
       const isActive = egg.uid === this.activeEggUid;
       const isMaxed = egg.isMaxed === true;
@@ -726,15 +748,25 @@ export class AppGame {
     const isTablet = viewportWidth > 520 && viewportWidth <= 920;
     const isMobile = viewportWidth <= 520;
     const isLargeDesktop = viewportWidth >= 1360 || viewportHeight >= 860;
-    const slotWidth = isMobile ? 100 : isTablet ? 120 : 150;
+    const slotCount = Math.max(1, Number(this.maxStored) || 3);
+    const mobileSideMargin = 8;
+    const mobilePaddingX = 8;
+    const mobileGap = 6;
+    const mobileAvailableWidth = Math.max(280, viewportWidth - mobileSideMargin * 2);
+    const mobileSlotWidth = Math.floor(
+      (mobileAvailableWidth - mobilePaddingX * 2 - mobileGap * (slotCount - 1)) / slotCount,
+    );
+    const slotWidth = isMobile ? Math.max(96, Math.min(132, mobileSlotWidth)) : isTablet ? 120 : 150;
     const slotMinHeight = isMobile ? 46 : isTablet ? 50 : 54;
     const fontSize = isMobile ? 11 : isTablet ? 12 : 13;
-    const padding = isMobile ? '8px 10px' : isTablet ? '9px 11px' : '10px 12px';
-    const gap = isMobile ? '8px' : isTablet ? '10px' : '12px';
+    const padding = isMobile ? `8px ${mobilePaddingX}px` : isTablet ? '9px 11px' : '10px 12px';
+    const gap = isMobile ? `${mobileGap}px` : isTablet ? '10px' : '12px';
     this.storedBarRoot.style.padding = padding;
     this.storedBarRoot.style.gap = gap;
     const top = isMobile ? '170px' : isTablet ? '170px' : isLargeDesktop ? '142px' : '150px';
-    this.storedBarRoot.style.maxWidth = 'none';
+    this.storedBarRoot.style.width = isMobile ? `calc(100vw - ${mobileSideMargin * 2}px)` : 'fit-content';
+    this.storedBarRoot.style.maxWidth = isMobile ? `calc(100vw - ${mobileSideMargin * 2}px)` : 'none';
+    this.storedBarRoot.style.justifyContent = isMobile ? 'center' : 'flex-start';
     this.storedBarRoot.style.top = top;
     if (this.tabsRoot) {
       this.tabsRoot.style.top = isMobile ? '92px' : isLargeDesktop ? '84px' : '92px';
@@ -745,6 +777,7 @@ export class AppGame {
       slot.style.width = `${slotWidth}px`;
       slot.style.minHeight = `${slotMinHeight}px`;
       slot.style.fontSize = `${fontSize}px`;
+      slot.style.padding = isMobile ? '6px 6px' : '6px 8px';
     });
   }
 
@@ -939,13 +972,26 @@ export class AppGame {
 
   setConfig(config = {}) {
     this.currency = config.currency || this.currency || '';
+    this.forceBonus = config.forceBonus === true || config?.rates?.forceBonus === true;
     if (Array.isArray(config.eggs) && config.eggs.length > 0) {
       const normalized = config.eggs
-        .map((egg) => ({
-          id: typeof egg?.id === 'string' ? egg.id : '',
-          label: typeof egg?.label === 'string' ? egg.label : (typeof egg?.id === 'string' ? egg.id : 'Egg'),
-          bet: Number(egg?.bet) || 0,
-        }))
+        .map((egg) => {
+          const levels = Array.isArray(egg?.levels)
+            ? egg.levels.map((level) => Number(level)).filter((level) => Number.isFinite(level) && level > 0)
+            : null;
+          const id = typeof egg?.id === 'string' ? egg.id : '';
+          const name = typeof egg?.name === 'string' && egg.name.trim()
+            ? egg.name.trim()
+            : (typeof egg?.label === 'string' && egg.label.trim() ? egg.label.trim() : id || 'Egg');
+          const label = typeof egg?.label === 'string' && egg.label.trim() ? egg.label.trim() : name;
+          return {
+            id,
+            name,
+            label,
+            bet: levels?.[0] ?? (Number(egg?.bet) || 0),
+            ...(levels?.length ? { levels } : {}),
+          };
+        })
         .filter((egg) => egg.id);
       if (normalized.length > 0) {
         this.eggCatalog = normalized;
@@ -974,7 +1020,8 @@ export class AppGame {
     this._renderPlay();
   }
 
-  applyServerState(state = {}) {
+  applyServerState(state = {}, options = {}) {
+    const { restoreActive = true } = options;
     const normalizeEgg = (egg) => {
       if (!egg?.uid) return null;
       const template = this.eggCatalog.find((item) => item.id === egg.id) || null;
@@ -982,8 +1029,12 @@ export class AppGame {
         ...(template || {}),
         ...egg,
         id: typeof egg?.id === 'string' ? egg.id : (template?.id ?? 'gold'),
+        name: typeof egg?.name === 'string' ? egg.name : (template?.name ?? template?.label ?? egg?.id ?? 'Egg'),
         label: typeof egg?.label === 'string' ? egg.label : (template?.label ?? egg?.id ?? 'Egg'),
         bet: Number(egg?.bet) || 0,
+        levels: Array.isArray(egg?.levels)
+          ? egg.levels.map((level) => Number(level)).filter((level) => Number.isFinite(level) && level > 0)
+          : (Array.isArray(template?.levels) ? [...template.levels] : undefined),
         tries: Number(egg?.tries) || 0,
         lastWinAmount: Number(egg?.lastWinAmount) || 0,
         isMaxed: Boolean(egg?.isMaxed),
@@ -1001,7 +1052,7 @@ export class AppGame {
     this.storedEggs = storedIds
       .map((uid) => eggById.get(uid))
       .filter(Boolean);
-    this.activeEggUid = typeof state.activeEggUid === 'string' ? state.activeEggUid : null;
+    this.activeEggUid = restoreActive && typeof state.activeEggUid === 'string' ? state.activeEggUid : null;
     this.activeSource = this.activeEggUid && this.storedEggs.some((egg) => egg.uid === this.activeEggUid)
       ? 'stored'
       : 'bought';
@@ -1142,11 +1193,12 @@ export class AppGame {
 
       if (outcome === 'win') {
         if (egg) {
-          const currentBet = typeof egg.bet === 'number' ? egg.bet : 0;
-          const doubled = currentBet > 0 ? currentBet * 2 : winAmount || currentBet;
           egg.lastWinAmount = winAmount ?? 0;
-          if (doubled > 0) {
-            egg.bet = doubled;
+          if (!state) {
+            const nextBet = this._getEggLevelAmount(egg, egg.tries);
+            if (nextBet > 0) {
+              egg.bet = nextBet;
+            }
           }
         }
         this.lastResultText = bonus ? `Bonus won ${this._formatMoney(winAmount)}` : `Won ${this._formatMoney(winAmount)}`;
@@ -1215,17 +1267,17 @@ export class AppGame {
   }
 
   _handleBuy() {
-    if (this.activeEggUid) return;
     if (this.storedEggs.length >= this.maxStored) {
       this._showToast(`Storage is full (${this.maxStored}/${this.maxStored}).`, 'error');
       return;
     }
     const template = this._getSelectedEggTemplate();
+    const buyAmount = this._getEggLevelAmount(template, 0) || template.bet || 0;
     if (this.onAction) {
       this.lockUI(true);
       void this.onAction({
         action: 'buy',
-        betAmount: template.bet,
+        betAmount: buyAmount,
         eggType: template.id,
       });
       return;
@@ -1233,9 +1285,76 @@ export class AppGame {
     const newEgg = this._createEggInstance(template);
     this.boughtEggs.push(newEgg);
     this.storedEggs.push(newEgg);
-    this._recordHistory(1, newEgg, { actionType: 'buy', chargeAmount: template.bet ?? 0 });
+    this._recordHistory(1, newEgg, { actionType: 'buy', chargeAmount: buyAmount });
     this._renderStoredBar();
     this._enterPlay(newEgg, 'stored');
+  }
+
+  _handleStore() {
+    const egg = this._getActiveEgg();
+    if (!egg) {
+      this._showToast('Select an egg first.', 'info');
+      return;
+    }
+    const alreadyStored = this.storedEggs.some((item) => item.uid === egg.uid);
+    if (!alreadyStored && this.storedEggs.length >= this.maxStored) {
+      this._showToast(`Storage is full (${this.maxStored}/${this.maxStored}).`, 'error');
+      return;
+    }
+    if (this.onAction) {
+      this.lockUI(true);
+      void this.onAction({
+        action: 'store',
+        betAmount: egg.bet,
+        eggId: egg.uid,
+        eggType: egg.id,
+        tryIndex: egg.tries ?? 0,
+      });
+      return;
+    }
+    if (!alreadyStored) {
+      this.storedEggs.push(egg);
+    }
+    this._recordHistory(1, egg, { actionType: 'stored' });
+    this.activeEggUid = null;
+    this.isCracked = false;
+    this.lastBonus = false;
+    this._renderStoredBar();
+    this._renderHomeDom();
+    this._renderPlay();
+  }
+
+  _handleCashOut() {
+    const egg = this._getActiveEgg();
+    if (!egg) {
+      this._showToast('Select an egg first.', 'info');
+      return;
+    }
+    if (!this._canCashOutEgg(egg)) {
+      this._showToast('Crack and win before cashing out.', 'info');
+      return;
+    }
+    if (this.onAction) {
+      this.lockUI(true);
+      void this.onAction({
+        action: 'redeem',
+        betAmount: egg.bet,
+        eggId: egg.uid,
+        eggType: egg.id,
+        tryIndex: egg.tries ?? 0,
+      });
+      return;
+    }
+    const winAmount = typeof egg.bet === 'number' ? egg.bet : 0;
+    this._removeEggFromArray(this.storedEggs, egg.uid);
+    this._removeEggFromArray(this.boughtEggs, egg.uid);
+    this._recordHistory(2, egg, { winAmount, chargeAmount: 0, actionType: 'redeemed' });
+    this.activeEggUid = null;
+    this.isCracked = false;
+    this.lastBonus = false;
+    this._renderStoredBar();
+    this._renderHomeDom();
+    this._renderPlay();
   }
 
   _showResultModalAndReset(didWin, winAmount, egg, didBonus = false) {
@@ -1510,8 +1629,9 @@ export class AppGame {
         this.eggCenter.x + this.eggCenter.width * 0.5,
         this.eggCenter.y - this.eggCenter.height * 0.46,
       );
-      this.bonusText.visible = hasEgg && this.lastBonus;
-      if (this.lastBonus && hasEgg) {
+      const shouldShowBonus = hasEgg && (this.forceBonus || this.lastBonus);
+      this.bonusText.visible = shouldShowBonus;
+      if (shouldShowBonus) {
         this._startBonusBounce();
       } else {
         this._stopBonusBounce();
@@ -1520,11 +1640,17 @@ export class AppGame {
     if (this.buyButton) {
       this._updateBuyButtonLabel();
       this.buyButton.visible = !hasEgg;
+      const isMobile = (window.innerWidth || width || 0) <= 520;
       const buyWidth = this.buyButton._baseWidth ?? this.buyButton.width;
       const buyHeight = this.buyButton._baseHeight ?? this.buyButton.height;
+      const buyOffsetY = isMobile ? 70 : 90;
+      const buyY = Math.min(
+        height / 2 - buyHeight / 2 + buyOffsetY,
+        height - buyHeight - (isMobile ? 36 : 56),
+      );
       this.buyButton.position.set(
         width / 2 - buyWidth / 2,
-        height / 2 - buyHeight / 2,
+        buyY,
       );
     }
     this._updateActionButtons();
@@ -1536,7 +1662,7 @@ export class AppGame {
   _updateBuyButtonLabel() {
     if (!this.buyButton || !this.buyButton._labelText) return;
     const template = this._getSelectedEggTemplate();
-    const amount = template.bet ?? 0;
+    const amount = this._getEggLevelAmount(template, 0) || template.bet || 0;
     this.buyButton._labelText.text = `Buy ${template.label} ${this._formatMoney(amount)}`;
     const buyWidth = this.buyButton._baseWidth ?? this.buyButton.width;
     const buyHeight = this.buyButton._baseHeight ?? this.buyButton.height;
@@ -2195,20 +2321,7 @@ export class AppGame {
     this.eggCenter = { x: centerX, y: centerY, width: eggWidth, height: eggHeight };
 
     this.egg.clear();
-    if (!this.fullEggSprite || !this.brokenEggSprite) {
-      this.egg.beginFill(0xd4af37);
-      this.egg.drawEllipse(centerX, centerY, eggWidth / 2, eggHeight / 2);
-      this.egg.endFill();
-
-      this.egg.lineStyle(6, 0xf9e1a3);
-      this.egg.drawEllipse(centerX, centerY, (eggWidth / 2) * 0.85, (eggHeight / 2) * 0.9);
-      this.egg.lineStyle();
-
-      this.egg.beginFill(0xfff8e1, 0.8);
-      this.egg.drawEllipse(centerX + eggWidth * 0.15, centerY - eggHeight * 0.2, eggWidth * 0.2, eggHeight * 0.15);
-      this.egg.endFill();
-    }
-    this.egg.visible = !this.fullEggSprite || !this.brokenEggSprite;
+    this.egg.visible = false;
     this._syncEggSprites();
 
     this._drawCrackOverlay();
@@ -2285,22 +2398,19 @@ export class AppGame {
       this._syncEggSprites();
       return;
     }
+    if (this.eggSpriteContainer) {
+      this.eggSpriteContainer.visible = false;
+    }
     try {
       const { fullTex, brokenTex } = await this._loadEggTextures(fullUrl, brokenUrl);
       this._applyEggTextures(fullTex, brokenTex);
       this._eggSpriteKey = key;
     } catch (err) {
-      try {
-        const { fullTex, brokenTex } = await this._loadEggTextures(
-          '/assets/egg.png',
-          '/assets/egg_broken.png',
-        );
-        this._applyEggTextures(fullTex, brokenTex);
-        this._eggSpriteKey = key;
-      } catch (fallbackErr) {
-        this.fullEggSprite = null;
-        this.brokenEggSprite = null;
-        this._eggSpriteKey = null;
+      this.fullEggSprite = null;
+      this.brokenEggSprite = null;
+      this._eggSpriteKey = null;
+      if (this.eggSpriteContainer) {
+        this.eggSpriteContainer.visible = false;
       }
     }
   }
@@ -2360,7 +2470,7 @@ export class AppGame {
     this.brokenEggSprite.position.set(0, 0);
     this.fullEggSprite.alpha = this.isCracked ? 0 : 1;
     this.brokenEggSprite.alpha = this.isCracked ? 1 : 0;
-    this.eggSpriteContainer.visible = true;
+    this.eggSpriteContainer.visible = Boolean(this._getActiveEgg());
   }
 
   async _knockAnim() {
@@ -2809,10 +2919,32 @@ export class AppGame {
     return {
       ...template,
       uid: makeUid(template.id || 'egg'),
+      bet: this._getEggLevelAmount(template, 0) || template.bet || 0,
       tries: 0,
       lastWinAmount: 0,
       lastCrackLevel: null,
     };
+  }
+
+  _getEggLevelAmount(egg, tryIndex = 0) {
+    if (!egg) return 0;
+    const safeIndex = Math.max(0, Number(tryIndex) || 0);
+    if (Array.isArray(egg.levels) && egg.levels.length > 0) {
+      const amount = Number(egg.levels[Math.min(safeIndex, egg.levels.length - 1)]);
+      return Number.isFinite(amount) && amount > 0 ? amount : 0;
+    }
+    const base = Number(egg.bet);
+    if (!Number.isFinite(base) || base <= 0) return 0;
+    return base * Math.pow(2, safeIndex);
+  }
+
+  _canCashOutEgg(egg) {
+    if (!egg) return false;
+    return Boolean(
+      egg.isMaxed
+      || (Number(egg.tries) || 0) > 0
+      || (Number(egg.lastWinAmount) || 0) > 0,
+    );
   }
 
   _toggleMode(mode) {
@@ -2837,6 +2969,9 @@ export class AppGame {
     const egg = this._getActiveEgg();
     const tries = egg?.tries ?? 0;
     const canCrack = !!egg && tries < this.maxCracks;
+    const showSecondaryActions = this._canCashOutEgg(egg);
+    const canStore = showSecondaryActions;
+    const canCashOut = this._canCashOutEgg(egg);
     const hideHome = tries > 0;
     const disableAlpha = 0.5;
     const disableMode = 'none';
@@ -2847,8 +2982,12 @@ export class AppGame {
     };
 
     setState(this.actionButton, canCrack);
+    setState(this.storeButton, canStore);
+    setState(this.cashoutButton, canCashOut);
 
     if (this.actionButton) this.actionButton.visible = !!egg;
+    if (this.storeButton) this.storeButton.visible = showSecondaryActions;
+    if (this.cashoutButton) this.cashoutButton.visible = showSecondaryActions;
     if (this.homeButtonEl) {
       this.homeButtonEl.style.display = !hideHome && this.mode === 'play' ? 'inline-flex' : 'none';
       this.homeButtonEl.disabled = hideHome || this.isLocked;
@@ -2886,7 +3025,7 @@ export class AppGame {
     this.isLocked = isLocked;
     const alpha = isLocked ? 0.6 : 1;
     const mode = isLocked ? 'none' : 'static';
-    [this.actionButton, this.cashoutButton, this.buyButton, this.backButton].forEach((btn) => {
+    [this.actionButton, this.storeButton, this.cashoutButton, this.buyButton, this.backButton].forEach((btn) => {
       if (!btn) return;
       btn.alpha = alpha;
       btn.eventMode = mode;
@@ -2913,31 +3052,48 @@ export class AppGame {
 
   _positionActionButtons(width, height) {
     if (!this.actionButton) return;
-    const gap = 12;
-    const actionH = this.actionButton._baseHeight ?? this.actionButton.height ?? 64;
-    const marginBottom = 24;
+    const layout = this._getActionButtonLayout(width);
+    const { gap, verticalGap, actionScale, secondaryScale, marginBottom } = layout;
+    this.actionButton.scale.set(actionScale);
+    if (this.storeButton) this.storeButton.scale.set(secondaryScale);
+    if (this.cashoutButton) this.cashoutButton.scale.set(secondaryScale);
+    const actionH = (this.actionButton._baseHeight ?? this.actionButton.height ?? 64) * actionScale;
     const fallbackRowY = Math.min(height * 0.82, height - actionH - marginBottom);
     const preferredRowY = this._playLayout?.actionButtonY;
-    const rowY = Math.min(
+    const stackHeight = this._playLayout?.buttonStackHeight ?? actionH;
+    const primaryY = Math.min(
       typeof preferredRowY === 'number' ? preferredRowY : fallbackRowY,
-      height - actionH - marginBottom,
+      height - stackHeight - marginBottom,
     );
 
-    const leftBtn = this.actionButton.visible !== false ? this.actionButton : null;
-    const rightBtn = null;
+    const secondaryButtons = [this.storeButton, this.cashoutButton]
+      .filter((btn) => btn && btn.visible !== false);
+    const buttonWidth = (btn) => (btn._baseWidth ?? btn.width) * (btn.scale?.x || 1);
+    const buttonHeight = (btn) => (btn._baseHeight ?? btn.height) * (btn.scale?.y || 1);
 
-    if (leftBtn && rightBtn) {
-      const totalWidth = leftBtn.width + rightBtn.width + gap;
-      const startX = (width - totalWidth) / 2;
-      leftBtn.position.set(startX, rowY);
-      rightBtn.position.set(startX + leftBtn.width + gap, rowY);
-    } else if (leftBtn) {
-      leftBtn.position.set((width - leftBtn.width) / 2, rowY);
-    } else if (rightBtn) {
-      rightBtn.position.set((width - rightBtn.width) / 2, rowY);
+    if (this.actionButton.visible !== false) {
+      this.actionButton.position.set((width - buttonWidth(this.actionButton)) / 2, primaryY);
     }
 
-    const crackButton = leftBtn || rightBtn;
+    if (secondaryButtons.length > 0) {
+      const secondaryY = primaryY + buttonHeight(this.actionButton) + verticalGap;
+      const totalWidth = secondaryButtons.reduce((sum, btn) => sum + buttonWidth(btn), 0) + gap * (secondaryButtons.length - 1);
+      if (totalWidth <= width - 24) {
+        let x = (width - totalWidth) / 2;
+        secondaryButtons.forEach((btn) => {
+          btn.position.set(x, secondaryY);
+          x += buttonWidth(btn) + gap;
+        });
+      } else {
+        let y = secondaryY;
+        secondaryButtons.forEach((btn) => {
+          btn.position.set((width - buttonWidth(btn)) / 2, y);
+          y += buttonHeight(btn) + verticalGap;
+        });
+      }
+    }
+
+    const crackButton = this.actionButton.visible !== false ? this.actionButton : secondaryButtons[0];
     if (crackButton) {
       this._positionStoredBar(crackButton.position.y);
     }
@@ -2947,22 +3103,58 @@ export class AppGame {
     if (!this.storedBarRoot) return;
   }
 
+  _getActionButtonLayout(width = 0) {
+    const viewportWidth = window.innerWidth || width || 0;
+    const isMobile = viewportWidth <= 520;
+    const isTablet = viewportWidth > 520 && viewportWidth <= 920;
+    if (isMobile) {
+      return {
+        actionScale: 0.86,
+        secondaryScale: 0.78,
+        gap: 8,
+        verticalGap: 6,
+        marginBottom: 14,
+      };
+    }
+    if (isTablet) {
+      return {
+        actionScale: 0.94,
+        secondaryScale: 0.9,
+        gap: 10,
+        verticalGap: 8,
+        marginBottom: 20,
+      };
+    }
+    return {
+      actionScale: 1,
+      secondaryScale: 1,
+      gap: 12,
+      verticalGap: 10,
+      marginBottom: 24,
+    };
+  }
+
   _getPlayMetrics(width, height) {
     const viewportWidth = window.innerWidth || width || 0;
     const viewportHeight = window.innerHeight || height || 0;
     const isMobile = viewportWidth <= 520;
     const isTablet = viewportWidth > 520 && viewportWidth <= 920;
     const isLargeDesktop = viewportWidth >= 1360 || viewportHeight >= 860;
-    const actionH = this.actionButton?._baseHeight ?? this.actionButton?.height ?? 64;
-    const marginBottom = isMobile ? 18 : 24;
+    const buttonLayout = this._getActionButtonLayout(width);
+    const actionH = (this.actionButton?._baseHeight ?? this.actionButton?.height ?? 64) * buttonLayout.actionScale;
+    const secondaryH = (this.storeButton?._baseHeight ?? this.cashoutButton?._baseHeight ?? 62) * buttonLayout.secondaryScale;
+    const hasSecondaryActions = this._canCashOutEgg(this._getActiveEgg());
+    const buttonStackGap = hasSecondaryActions ? buttonLayout.verticalGap : 0;
+    const buttonStackHeight = actionH + (hasSecondaryActions ? buttonStackGap + secondaryH : 0);
+    const marginBottom = buttonLayout.marginBottom;
     const hudBottom = isMobile ? 228 : isTablet ? 238 : isLargeDesktop ? 220 : 232;
     const topPadding = isMobile ? 10 : 14;
-    const minEggSize = isMobile ? 220 : isTablet ? 260 : 300;
+    const minEggSize = isMobile ? 180 : isTablet ? 230 : 270;
     const maxEggSize = isMobile ? 300 : 400;
     const labelGap = isMobile ? 14 : isTablet ? 18 : 22;
     const buttonGap = isMobile ? 18 : isTablet ? 22 : 26;
     const labelReserve = isMobile ? 30 : 34;
-    const bottomLimit = height - actionH - marginBottom;
+    const bottomLimit = height - buttonStackHeight - marginBottom;
     const availableHeight = Math.max(
       220,
       bottomLimit - hudBottom - topPadding - labelGap - buttonGap - labelReserve,
@@ -2971,7 +3163,7 @@ export class AppGame {
       minEggSize,
       Math.min(
         maxEggSize,
-        width * (isMobile ? 0.42 : isTablet ? 0.38 : 0.32),
+        width * (isMobile ? 0.5 : isTablet ? 0.38 : 0.32),
         availableHeight,
       ),
     );
@@ -2994,6 +3186,7 @@ export class AppGame {
       eggCenterY,
       labelY,
       actionButtonY: Math.min(actionButtonY, bottomLimit),
+      buttonStackHeight,
     };
   }
   // endregion helpers / state ---------------------------------------------------

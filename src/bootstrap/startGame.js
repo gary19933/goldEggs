@@ -105,7 +105,7 @@ export async function startGame(options = {}) {
     game.setConfig(initResponse?.config);
     game.updateBalance(initResponse?.balance ?? 0);
     if (initResponse?.state) {
-      game.applyServerState(initResponse.state);
+      game.applyServerState(initResponse.state, { restoreActive: false });
     }
     game.ready();
   } catch (error) {

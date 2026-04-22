@@ -9,6 +9,46 @@ Use this guide when handing the Golden Eggs game to a partner platform or wallet
 - SDK build: `dist-sdk/golden-eggs-sdk.iife.js` or `dist-sdk/golden-eggs-sdk.umd.js`.
 - Hosted page build: `dist/index.html` and `dist/assets/*`.
 
+## Handoff Package Contents
+
+Send these files and folders to the third-party team:
+
+```text
+THIRD_PARTY_INTEGRATION.md
+DOCKER.md
+server/ADMIN_API.md
+dist/
+dist-sdk/
+server/
+assets/
+docker/
+Dockerfile.frontend
+Dockerfile.server
+docker-compose.yml
+.env.docker.example
+.dockerignore
+package.json
+package-lock.json
+vite.config.js
+vite.config.sdk.js
+index.html
+src/
+```
+
+Do not send local-only files:
+
+```text
+node_modules/
+.git/
+.env
+server/data/
+server/logs/
+frontend-demo.log
+frontend-demo.err.log
+server-demo.log
+server-demo.err.log
+```
+
 ## Integration Options
 
 ### Option A: Hosted Page / iframe
@@ -196,7 +236,7 @@ Adjustable fields:
 
 - `winRate`
 - `bonusRate`
-- `eggs` for egg labels and prices
+- `eggs` for egg names, labels, selling prices, and per-level crack amounts
 - `currency`
 - `maxStored`
 - `maxCracks`
@@ -208,8 +248,20 @@ Example:
 ```json
 {
   "eggs": [
-    { "id": "gold", "label": "Gold Egg", "bet": 100 },
-    { "id": "premium", "label": "Premium Egg", "bet": 1000 }
+    {
+      "id": "gold",
+      "name": "Gold Egg",
+      "label": "Gold Egg",
+      "bet": 100,
+      "levels": [100, 200, 400, 800]
+    },
+    {
+      "id": "premium",
+      "name": "Premium Egg",
+      "label": "Premium Egg",
+      "bet": 1000,
+      "levels": [1000, 2000, 4000, 8000]
+    }
   ],
   "maxStored": 3,
   "maxCracks": 12,
@@ -226,6 +278,8 @@ Example:
 }
 ```
 
+`bet` is the fallback/base selling price. When `levels` is provided, `levels[0]` is used as the egg buy price and first crack value, `levels[1]` is used for level 2, and so on. If `levels` is omitted, the game doubles from `bet` for each level.
+
 ## Production Handoff Checklist
 
 Prepare these items for the third-party team:
@@ -238,7 +292,7 @@ Prepare these items for the third-party team:
 - Wallet/debit/credit rules for `buy`, `crack`, and `redeem`.
 - Database or ledger integration plan to replace JSON file state.
 - Admin API key and backoffice IP/domain access rules.
-- Game settings: `winRate`, `bonusRate`, egg prices, max stored eggs, max cracks, and info text.
+- Game settings: `winRate`, `bonusRate`, egg names/labels, egg buy prices, per-level crack amounts, max stored eggs, max cracks, and info text.
 - Expected callback contract for iframe `GAME_RESULT` or SDK `onResult`.
 - Support flow for `redeem`, because the current code treats redeem as a backoffice settlement action.
 
@@ -261,6 +315,46 @@ Frontend dev:
 ```bash
 npm run dev
 ```
+
+## Docker Deployment
+
+This project includes Docker files for a two-container deployment:
+
+- `Dockerfile.server`: backend Express microservice.
+- `Dockerfile.frontend`: built frontend served by Nginx.
+- `docker/nginx.conf`: serves the frontend and proxies `/game/*` and `/admin/*` to the backend service.
+- `docker-compose.yml`: runs both services together.
+
+Run locally:
+
+```bash
+docker compose up --build
+```
+
+URLs:
+
+```text
+Frontend: http://localhost:8080
+Backend:  http://localhost:3001
+```
+
+The frontend container can call the backend through the same frontend domain because Nginx proxies:
+
+```text
+/game/*  -> backend:3001/game/*
+/admin/* -> backend:3001/admin/*
+```
+
+Optional environment variables:
+
+```env
+ADMIN_API_KEY=replace-with-strong-secret
+FORCE_WIN=false
+FORCE_BONUS=false
+VITE_API_BASE_URL=
+```
+
+For production, keep `FORCE_WIN` and `FORCE_BONUS` set to `false`. If the API is hosted on a separate domain, set `VITE_API_BASE_URL=https://your-api-domain.example` before building the frontend image.
 
 ## Current Risks To Discuss Before Launch
 

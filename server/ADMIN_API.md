@@ -23,8 +23,20 @@ Response:
     "winRate": 0.5,
     "bonusRate": 0.01,
     "eggs": [
-      { "id": "gold", "label": "Gold Egg", "bet": 100 },
-      { "id": "premium", "label": "Premium Egg", "bet": 1000 }
+      {
+        "id": "gold",
+        "name": "Gold Egg",
+        "label": "Gold Egg",
+        "bet": 100,
+        "levels": [100, 200, 400, 800]
+      },
+      {
+        "id": "premium",
+        "name": "Premium Egg",
+        "label": "Premium Egg",
+        "bet": 1000,
+        "levels": [1000, 2000, 4000, 8000]
+      }
     ],
     "currency": "RM",
     "maxStored": 3,
@@ -58,8 +70,20 @@ Body example:
   "winRate": 0.42,
   "bonusRate": 0.05,
   "eggs": [
-    { "id": "gold", "label": "Gold Egg", "bet": 100 },
-    { "id": "premium", "label": "Premium Egg", "bet": 1000 }
+    {
+      "id": "gold",
+      "name": "Gold Egg",
+      "label": "Gold Egg",
+      "bet": 100,
+      "levels": [100, 200, 400, 800]
+    },
+    {
+      "id": "premium",
+      "name": "Premium Egg",
+      "label": "Premium Egg",
+      "bet": 1000,
+      "levels": [1000, 2000, 4000, 8000]
+    }
   ],
   "currency": "RM",
   "maxStored": 3,
@@ -81,7 +105,10 @@ Notes:
 
 - You can update only one field (e.g. just `maxStored`).
 - Accepts decimal `0..1` or percentage `0..100`.
-- `eggs` must be a non-empty array. Each egg needs a unique `id`, a `label`, and a positive `bet`.
+- `eggs` must be a non-empty array. Each egg needs a unique `id`; `name` and `label` are optional display fields.
+- `bet` is the selling price/base amount. If `levels` is provided, `levels[0]` becomes the buy price and first crack value.
+- `levels` is optional. When provided, it must contain 1 to 12 positive amounts. Each crack uses the configured amount for that level: level 1 uses `levels[0]`, level 2 uses `levels[1]`, and so on.
+- If `levels` is not provided, the game keeps the old behavior: level values double from `bet`.
 - `maxStored` must be a whole number from `1` to `12`.
 - `maxCracks` must be a whole number from `1` to `12`.
 - `info.steps` must contain at least one text string.

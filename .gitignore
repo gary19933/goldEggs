@@ -2,6 +2,7 @@ node_modules
 dist
 dist-sdk
 .DS_Store
+.env
 .env.local
 server/logs/
 server/data/
@@ -9,3 +10,8 @@ frontend.log
 frontend.err.log
 backend.log
 backend.err.log
+frontend-demo.log
+frontend-demo.err.log
+server-demo.log
+server-demo.err.log
+handoff/

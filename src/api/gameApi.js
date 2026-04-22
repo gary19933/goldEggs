@@ -9,8 +9,8 @@ const MAX_HISTORY = 200;
 const MAX_STORED = 3;
 const DEFAULT_BALANCE = 1000;
 const EGG_CONFIG = [
-  { id: 'gold', label: 'Gold Egg', bet: 100 },
-  { id: 'premium', label: 'Premium Egg', bet: 1000 },
+  { id: 'gold', name: 'Gold Egg', label: 'Gold Egg', bet: 100, levels: [100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600, 51200, 102400, 204800] },
+  { id: 'premium', name: 'Premium Egg', label: 'Premium Egg', bet: 1000, levels: [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000, 512000, 1024000, 2048000] },
 ];
 const INFO_CONFIG = {
   title: 'How To Play',
@@ -190,8 +190,10 @@ function createEggState(userState, eggType = 'gold', eggId) {
   return {
     uid,
     id: template.id,
+    name: template.name,
     label: template.label,
-    bet: template.bet,
+    bet: resolveBetAmount(template.id, 0, template.bet),
+    levels: Array.isArray(template.levels) ? [...template.levels] : undefined,
     tries: 0,
     hasCracked: false,
     lastWinAmount: 0,
@@ -204,8 +206,10 @@ function serializeEgg(egg) {
   return {
     uid: egg.uid,
     id: egg.id,
+    name: egg.name,
     label: egg.label,
     bet: egg.bet,
+    ...(Array.isArray(egg.levels) ? { levels: [...egg.levels] } : {}),
     tries: egg.tries,
     hasCracked: egg.hasCracked,
     lastWinAmount: egg.lastWinAmount,
@@ -229,11 +233,16 @@ function serializeState(userState) {
 }
 
 function resolveBetAmount(eggType, tryIndex, fallbackBetAmount = 0) {
-  const baseBet = EGG_CONFIG_BY_ID[eggType]?.bet;
+  const eggConfig = EGG_CONFIG_BY_ID[eggType];
+  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, MAX_CRACKS));
+  if (Array.isArray(eggConfig?.levels) && eggConfig.levels.length > 0) {
+    const configuredAmount = eggConfig.levels[Math.min(safeTryIndex, eggConfig.levels.length - 1)];
+    return Number(configuredAmount) || 0;
+  }
+  const baseBet = eggConfig?.bet;
   if (typeof baseBet !== 'number' || Number.isNaN(baseBet)) {
     return Math.max(0, Number(fallbackBetAmount) || 0);
   }
-  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, MAX_CRACKS));
   return baseBet * Math.pow(2, safeTryIndex);
 }
 
@@ -297,6 +306,8 @@ function mockInit(payload = {}) {
       currency: 'RM',
       maxStored: MAX_STORED,
       maxCracks: MAX_CRACKS,
+      forceWin: FORCE_WIN,
+      forceBonus: FORCE_BONUS,
       info: {
         title: INFO_CONFIG.title,
         steps: [...INFO_CONFIG.steps],
