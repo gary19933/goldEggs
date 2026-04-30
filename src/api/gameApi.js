@@ -4,7 +4,7 @@ export const SHOULD_MOCK = USE_MOCK || (!rawBaseUrl && import.meta.env.DEV);
 const FORCE_BONUS = import.meta.env.VITE_FORCE_BONUS === 'true';
 const FORCE_WIN = import.meta.env.VITE_FORCE_WIN === 'true';
 const MOCK_UNLIMITED_BUY = import.meta.env.VITE_MOCK_UNLIMITED_BUY === 'true';
-const MAX_CRACKS = 12;
+const LEGACY_MAX_LEVELS = 12;
 const MAX_HISTORY = 200;
 const MAX_STORED = 3;
 const DEFAULT_BALANCE = 1000;
@@ -234,7 +234,10 @@ function serializeState(userState) {
 
 function resolveBetAmount(eggType, tryIndex, fallbackBetAmount = 0) {
   const eggConfig = EGG_CONFIG_BY_ID[eggType];
-  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, MAX_CRACKS));
+  const maxLevel = Array.isArray(eggConfig?.levels) && eggConfig.levels.length > 0
+    ? eggConfig.levels.length
+    : LEGACY_MAX_LEVELS;
+  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, maxLevel));
   if (Array.isArray(eggConfig?.levels) && eggConfig.levels.length > 0) {
     const configuredAmount = eggConfig.levels[Math.min(safeTryIndex, eggConfig.levels.length - 1)];
     return Number(configuredAmount) || 0;
@@ -244,6 +247,22 @@ function resolveBetAmount(eggType, tryIndex, fallbackBetAmount = 0) {
     return Math.max(0, Number(fallbackBetAmount) || 0);
   }
   return baseBet * Math.pow(2, safeTryIndex);
+}
+
+function getEggMaxLevel(eggOrType) {
+  if (eggOrType && typeof eggOrType === 'object' && Array.isArray(eggOrType.levels) && eggOrType.levels.length > 0) {
+    return eggOrType.levels.length;
+  }
+  const eggType = typeof eggOrType === 'string' ? eggOrType : eggOrType?.id;
+  const eggConfig = eggType ? EGG_CONFIG_BY_ID[eggType] : null;
+  if (Array.isArray(eggConfig?.levels) && eggConfig.levels.length > 0) {
+    return eggConfig.levels.length;
+  }
+  return LEGACY_MAX_LEVELS;
+}
+
+function buildLevel(eggOrType, tryIndex) {
+  return Math.min(Math.max((Number(tryIndex) || 0) + 1, 1), getEggMaxLevel(eggOrType));
 }
 
 function recordHistory(userState, status, egg, extra = {}) {
@@ -305,7 +324,6 @@ function mockInit(payload = {}) {
       eggs: EGG_CONFIG,
       currency: 'RM',
       maxStored: MAX_STORED,
-      maxCracks: MAX_CRACKS,
       forceWin: FORCE_WIN,
       forceBonus: FORCE_BONUS,
       info: {
@@ -400,7 +418,7 @@ function mockAction(payload = {}) {
       eggId: egg.uid,
       eggType: egg.id,
       tryIndex: egg.tries ?? 0,
-      level: Math.min(Math.max((egg.tries ?? 0) + 1, 1), MAX_CRACKS),
+      level: buildLevel(egg, egg.tries ?? 0),
       bonus: false,
     }));
   }
@@ -424,7 +442,7 @@ function mockAction(payload = {}) {
       eggId: egg.uid,
       eggType: egg.id,
       tryIndex: egg.tries ?? 0,
-      level: Math.min(Math.max((egg.tries ?? 0) + 1, 1), MAX_CRACKS),
+      level: buildLevel(egg, egg.tries ?? 0),
       bonus: false,
     }));
   }
@@ -466,14 +484,15 @@ function mockAction(payload = {}) {
   const winAmount = didWin ? effectiveBetAmount * (didBonus ? 2 : 1) : 0;
   const chargeAmount = egg.hasCracked ? effectiveBetAmount : 0;
   userState.balance = Math.max(0, userState.balance + winAmount - chargeAmount);
-  const nextTryIndex = didWin ? Math.min(serverTryIndex + 1, MAX_CRACKS) : 0;
+  const maxLevel = getEggMaxLevel(egg);
+  const nextTryIndex = didWin ? Math.min(serverTryIndex + 1, maxLevel) : 0;
 
   if (didWin) {
     egg.hasCracked = true;
     egg.tries = nextTryIndex;
     egg.lastWinAmount = winAmount;
     egg.bet = resolveBetAmount(egg.id, nextTryIndex, effectiveBetAmount * 2);
-    egg.isMaxed = nextTryIndex >= MAX_CRACKS;
+    egg.isMaxed = nextTryIndex >= maxLevel;
   } else {
     userState.eggs.delete(egg.uid);
     if (userState.activeEggUid === egg.uid) {
@@ -500,6 +519,6 @@ function mockAction(payload = {}) {
     eggId: egg.uid,
     eggType: egg.id,
     tryIndex: nextTryIndex,
-    level: Math.min(Math.max(nextTryIndex + 1, 1), MAX_CRACKS),
+    level: buildLevel(egg, nextTryIndex),
   }));
 }

@@ -40,7 +40,6 @@ Response:
     ],
     "currency": "RM",
     "maxStored": 3,
-    "maxCracks": 12,
     "info": {
       "title": "How To Play",
       "steps": [
@@ -61,7 +60,7 @@ Response:
 
 - `PUT /admin/game-config`
 - Header (if `ADMIN_API_KEY` is set): `x-admin-key: <your-key>`
-- Body (JSON): any of `winRate`, `bonusRate`, `eggs`, `currency`, `maxStored`, `maxCracks`, `info`, `infoTitle`, `infoSteps`, `updatedBy`
+- Body (JSON): any of `winRate`, `bonusRate`, `eggs`, `currency`, `maxStored`, `info`, `infoTitle`, `infoSteps`, `updatedBy`
 
 Body example:
 
@@ -87,7 +86,6 @@ Body example:
   ],
   "currency": "RM",
   "maxStored": 3,
-  "maxCracks": 12,
   "info": {
     "title": "How To Play",
     "steps": [
@@ -107,9 +105,11 @@ Notes:
 - Accepts decimal `0..1` or percentage `0..100`.
 - `eggs` must be a non-empty array. Each egg needs a unique `id`; `name` and `label` are optional display fields.
 - `bet` is the selling price/base amount. If `levels` is provided, `levels[0]` becomes the buy price and first crack value.
-- `levels` is optional. When provided, it must contain 1 to 12 positive amounts. Each crack uses the configured amount for that level: level 1 uses `levels[0]`, level 2 uses `levels[1]`, and so on.
+- `levels` controls how many levels the egg has. If an egg has 12 level entries, that egg has 12 levels.
+- `levels` may contain positive amounts for legacy configs, or objects with `label`/`name`, `cost`, `prize`, `fullImageUrl`, and `crackImageUrl`.
+- `cost` is the amount charged for that level. `prize` is the amount credited on win/redeem before the bonus multiplier.
+- `fullImageUrl` and `crackImageUrl` should point to images hosted by the third-party CMS/CDN.
 - If `levels` is not provided, the game keeps the old behavior: level values double from `bet`.
 - `maxStored` must be a whole number from `1` to `12`.
-- `maxCracks` must be a whole number from `1` to `12`.
 - `info.steps` must contain at least one text string.
 - New values are persisted and used immediately for every player.

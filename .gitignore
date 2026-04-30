@@ -14,4 +14,9 @@ frontend-demo.log
 frontend-demo.err.log
 server-demo.log
 server-demo.err.log
+frontend-local.log
+frontend-local.err.log
+server-local-3002.log
+server-local-3002.err.log
 handoff/
+docs/render_*/

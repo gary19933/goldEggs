@@ -61,7 +61,7 @@ export class AppGame {
     this.activeTabId = 'gold';
     this.previousTabId = null;
     this._prevEggOnStoredLose = null;
-    this.maxCracks = 12;
+    this.legacyMaxLevels = 12;
 
     this._statusBgColor = 0xfff7cf;
     this._statusTextColor = 0xffeb3b;
@@ -571,9 +571,10 @@ export class AppGame {
       }
       const label = document.createElement('div');
       const hasWon = (egg.tries ?? 0) > 0 && typeof egg.lastWinAmount === 'number' && egg.lastWinAmount > 0;
+      const levelLabel = this._getLevelLabel(egg, egg.tries ?? 0);
       label.textContent = hasWon
-        ? `${egg.label ?? egg.id ?? 'Egg'} ${this._formatMoney(egg.lastWinAmount)}`
-        : `${egg.label ?? egg.id ?? 'Egg'}`;
+        ? `${levelLabel} ${this._formatMoney(egg.lastWinAmount)}`
+        : `${levelLabel}`;
       label.style.color = '#fffaf0';
       label.style.marginBottom = '6px';
       label.style.width = '100%';
@@ -970,25 +971,63 @@ export class AppGame {
 
   // endregion setup -------------------------------------------------------------
 
+  _normalizeLevelConfig(level, index = 0) {
+    if (typeof level === 'number' || typeof level === 'string') {
+      const amount = Number(level);
+      return Number.isFinite(amount) && amount > 0 ? Number(amount.toFixed(2)) : null;
+    }
+    if (!level || typeof level !== 'object') return null;
+    const cost = Number(level.cost ?? level.amount ?? level.price ?? level.bet);
+    if (!Number.isFinite(cost) || cost <= 0) return null;
+    const prize = Number(level.prize ?? level.winAmount ?? level.reward ?? cost);
+    const name = typeof level.name === 'string' && level.name.trim()
+      ? level.name.trim()
+      : undefined;
+    const label = typeof level.label === 'string' && level.label.trim()
+      ? level.label.trim()
+      : name;
+    const fullImageUrl = typeof (level.fullImageUrl ?? level.eggImageUrl ?? level.imageUrl) === 'string'
+      ? (level.fullImageUrl ?? level.eggImageUrl ?? level.imageUrl).trim()
+      : '';
+    const crackImageUrl = typeof (level.crackImageUrl ?? level.brokenImageUrl ?? level.crackedImageUrl) === 'string'
+      ? (level.crackImageUrl ?? level.brokenImageUrl ?? level.crackedImageUrl).trim()
+      : '';
+    return {
+      ...(name ? { name } : {}),
+      ...(label ? { label } : {}),
+      cost: Number(cost.toFixed(2)),
+      prize: Number((Number.isFinite(prize) && prize > 0 ? prize : cost).toFixed(2)),
+      ...(fullImageUrl ? { fullImageUrl } : {}),
+      ...(crackImageUrl ? { crackImageUrl } : {}),
+    };
+  }
+
+  _normalizeLevels(levels) {
+    if (!Array.isArray(levels)) return null;
+    const normalized = levels
+      .map((level, index) => this._normalizeLevelConfig(level, index))
+      .filter(Boolean);
+    return normalized.length > 0 ? normalized : null;
+  }
+
   setConfig(config = {}) {
     this.currency = config.currency || this.currency || '';
     this.forceBonus = config.forceBonus === true || config?.rates?.forceBonus === true;
     if (Array.isArray(config.eggs) && config.eggs.length > 0) {
       const normalized = config.eggs
         .map((egg) => {
-          const levels = Array.isArray(egg?.levels)
-            ? egg.levels.map((level) => Number(level)).filter((level) => Number.isFinite(level) && level > 0)
-            : null;
+          const levels = this._normalizeLevels(egg?.levels);
           const id = typeof egg?.id === 'string' ? egg.id : '';
           const name = typeof egg?.name === 'string' && egg.name.trim()
             ? egg.name.trim()
             : (typeof egg?.label === 'string' && egg.label.trim() ? egg.label.trim() : id || 'Egg');
           const label = typeof egg?.label === 'string' && egg.label.trim() ? egg.label.trim() : name;
+          const firstCost = levels?.length ? this._getLevelCost(levels[0]) : 0;
           return {
             id,
             name,
             label,
-            bet: levels?.[0] ?? (Number(egg?.bet) || 0),
+            bet: firstCost || (Number(egg?.bet) || 0),
             ...(levels?.length ? { levels } : {}),
           };
         })
@@ -999,7 +1038,6 @@ export class AppGame {
     }
     this._initTabEggs();
     this.maxStored = typeof config.maxStored === 'number' ? config.maxStored : 3;
-    this.maxCracks = typeof config.maxCracks === 'number' ? config.maxCracks : this.maxCracks;
     if (config.info && typeof config.info === 'object') {
       const title = typeof config.info.title === 'string' && config.info.title.trim()
         ? config.info.title.trim()
@@ -1032,9 +1070,7 @@ export class AppGame {
         name: typeof egg?.name === 'string' ? egg.name : (template?.name ?? template?.label ?? egg?.id ?? 'Egg'),
         label: typeof egg?.label === 'string' ? egg.label : (template?.label ?? egg?.id ?? 'Egg'),
         bet: Number(egg?.bet) || 0,
-        levels: Array.isArray(egg?.levels)
-          ? egg.levels.map((level) => Number(level)).filter((level) => Number.isFinite(level) && level > 0)
-          : (Array.isArray(template?.levels) ? [...template.levels] : undefined),
+        levels: this._normalizeLevels(egg?.levels) || (Array.isArray(template?.levels) ? [...template.levels] : undefined),
         tries: Number(egg?.tries) || 0,
         lastWinAmount: Number(egg?.lastWinAmount) || 0,
         isMaxed: Boolean(egg?.isMaxed),
@@ -1185,10 +1221,11 @@ export class AppGame {
       await this._playBreakAnimation();
 
       if (egg) {
+        const maxLevel = this._getEggMaxLevel(egg);
         const nextTries = typeof tryIndex === 'number'
           ? tryIndex
-          : Math.min(this.maxCracks, (egg.tries ?? 0) + 1);
-        egg.tries = Math.min(this.maxCracks, Math.max(0, nextTries));
+          : Math.min(maxLevel, (egg.tries ?? 0) + 1);
+        egg.tries = Math.min(maxLevel, Math.max(0, nextTries));
       }
 
       if (outcome === 'win') {
@@ -1250,8 +1287,9 @@ export class AppGame {
       return;
     }
     const tries = egg.tries ?? 0;
-    if (tries >= this.maxCracks) {
-      this._showToast(`Max level reached (${this.maxCracks}/${this.maxCracks}).`, 'info');
+    const maxLevel = this._getEggMaxLevel(egg);
+    if (tries >= maxLevel) {
+      this._showToast(`Max level reached (${maxLevel}/${maxLevel}).`, 'info');
       return;
     }
     egg.lastCrackLevel = this._getEggLevel(egg);
@@ -1425,7 +1463,7 @@ export class AppGame {
         if (!didWin) {
           this.activeEggUid = null;
         }
-        if (didWin && egg && (egg.tries ?? 0) >= this.maxCracks) {
+        if (didWin && egg && (egg.tries ?? 0) >= this._getEggMaxLevel(egg)) {
           egg.isMaxed = true;
           this.activeEggUid = null;
           this._renderStoredBar();
@@ -1593,7 +1631,8 @@ export class AppGame {
       : null;
     const pricePart =
       egg && typeof displayAmount === 'number' && displayAmount > 0 ? ` ${this._formatMoney(displayAmount)}` : '';
-    const label = egg ? `${egg.label ?? egg.id ?? 'Egg'}${pricePart}` : '';
+    const levelLabel = egg ? this._getLevelLabel(egg, egg.tries ?? 0) : '';
+    const label = egg ? `${levelLabel}${pricePart}` : '';
     this.eggLabel.text = label;
     this.eggLabel.position.set(width / 2, playMetrics.labelY);
     if (egg) {
@@ -2334,7 +2373,7 @@ export class AppGame {
 
   _getEggLevel(egg) {
     const tries = egg?.tries ?? 0;
-    return Math.min(tries + 1, this.maxCracks);
+    return Math.min(tries + 1, this._getEggMaxLevel(egg));
   }
 
   _getEggLevelForDisplay(egg) {
@@ -2344,9 +2383,59 @@ export class AppGame {
     return this._getEggLevel(egg);
   }
 
+  _getLevelConfig(egg, tryIndex = 0) {
+    if (!egg || !Array.isArray(egg.levels) || egg.levels.length === 0) return null;
+    const safeIndex = Math.max(0, Math.min(Number(tryIndex) || 0, egg.levels.length - 1));
+    return egg.levels[safeIndex] || null;
+  }
+
+  _getEggMaxLevel(egg) {
+    if (egg && Array.isArray(egg.levels) && egg.levels.length > 0) {
+      return egg.levels.length;
+    }
+    if (egg?.id) {
+      const template = this.eggCatalog.find((item) => item.id === egg.id);
+      if (Array.isArray(template?.levels) && template.levels.length > 0) {
+        return template.levels.length;
+      }
+    }
+    return this.legacyMaxLevels;
+  }
+
+  _getLevelCost(level) {
+    if (typeof level === 'number') return level;
+    if (!level || typeof level !== 'object') return 0;
+    const amount = Number(level.cost ?? level.amount ?? level.price ?? level.bet);
+    return Number.isFinite(amount) && amount > 0 ? amount : 0;
+  }
+
+  _getLevelPrize(level) {
+    if (typeof level === 'number') return level;
+    if (!level || typeof level !== 'object') return 0;
+    const amount = Number(level.prize ?? level.winAmount ?? level.reward ?? level.cost);
+    return Number.isFinite(amount) && amount > 0 ? amount : 0;
+  }
+
+  _getLevelLabel(egg, tryIndex = 0) {
+    const level = this._getLevelConfig(egg, tryIndex);
+    if (level && typeof level === 'object') {
+      return level.label || level.name || egg?.label || egg?.id || 'Egg';
+    }
+    return egg?.label || egg?.id || 'Egg';
+  }
+
   _getEggSpriteUrls(egg, level) {
     const type = egg?.id === 'premium' ? 'premium' : 'normal';
-    const safeLevel = Math.max(1, Math.min(level || 1, this.maxCracks));
+    const safeLevel = Math.max(1, Math.min(level || 1, this._getEggMaxLevel(egg)));
+    const levelConfig = this._getLevelConfig(egg, safeLevel - 1);
+    if (levelConfig && typeof levelConfig === 'object' && (levelConfig.fullImageUrl || levelConfig.crackImageUrl)) {
+      const fallbackType = type === 'premium' ? 'premium' : 'normal';
+      return {
+        fullUrl: levelConfig.fullImageUrl || `/assets/${fallbackType}/full/${fallbackType === 'premium' ? `diamond-${safeLevel}.png` : `gold-${safeLevel}.png`}`,
+        brokenUrl: levelConfig.crackImageUrl || `/assets/${fallbackType}/crack/${fallbackType === 'premium' ? `diamond-crack-${safeLevel}.png` : `gold-crack-${safeLevel}.png`}`,
+        key: `${egg?.id || type}-${safeLevel}-${levelConfig.fullImageUrl || ''}-${levelConfig.crackImageUrl || ''}`,
+      };
+    }
     const normalCrackName = (lvl) => `gold-crack-${lvl}.png`;
     const normalFullName = (lvl) => `gold-${lvl}.png`;
     const premiumFullName = (lvl) => `diamond-${lvl}.png`;
@@ -2928,14 +3017,12 @@ export class AppGame {
 
   _getEggLevelAmount(egg, tryIndex = 0) {
     if (!egg) return 0;
-    const safeIndex = Math.max(0, Number(tryIndex) || 0);
-    if (Array.isArray(egg.levels) && egg.levels.length > 0) {
-      const amount = Number(egg.levels[Math.min(safeIndex, egg.levels.length - 1)]);
-      return Number.isFinite(amount) && amount > 0 ? amount : 0;
-    }
+    const level = this._getLevelConfig(egg, tryIndex);
+    const levelCost = this._getLevelCost(level);
+    if (levelCost > 0) return levelCost;
     const base = Number(egg.bet);
     if (!Number.isFinite(base) || base <= 0) return 0;
-    return base * Math.pow(2, safeIndex);
+    return base * Math.pow(2, Math.max(0, Number(tryIndex) || 0));
   }
 
   _canCashOutEgg(egg) {
@@ -2968,7 +3055,7 @@ export class AppGame {
   _updateActionButtons() {
     const egg = this._getActiveEgg();
     const tries = egg?.tries ?? 0;
-    const canCrack = !!egg && tries < this.maxCracks;
+    const canCrack = !!egg && tries < this._getEggMaxLevel(egg);
     const showSecondaryActions = this._canCashOutEgg(egg);
     const canStore = showSecondaryActions;
     const canCashOut = this._canCashOutEgg(egg);

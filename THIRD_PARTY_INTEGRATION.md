@@ -239,7 +239,6 @@ Adjustable fields:
 - `eggs` for egg names, labels, selling prices, and per-level crack amounts
 - `currency`
 - `maxStored`
-- `maxCracks`
 - `info.title`
 - `info.steps`
 
@@ -264,7 +263,6 @@ Example:
     }
   ],
   "maxStored": 3,
-  "maxCracks": 12,
   "info": {
     "title": "How To Play",
     "steps": [
@@ -278,7 +276,7 @@ Example:
 }
 ```
 
-`bet` is the fallback/base selling price. When `levels` is provided, `levels[0]` is used as the egg buy price and first crack value, `levels[1]` is used for level 2, and so on. If `levels` is omitted, the game doubles from `bet` for each level.
+`levels` controls how many levels each egg has. When `levels` is provided, `levels[0]` is level 1, `levels[1]` is level 2, and so on. Each level can be either a legacy amount or a full level config object with `label`/`name`, `cost`, `prize`, `fullImageUrl`, and `crackImageUrl`. `bet` is only the fallback/base selling price when `levels` is omitted.
 
 ## Production Handoff Checklist
 
@@ -292,7 +290,7 @@ Prepare these items for the third-party team:
 - Wallet/debit/credit rules for `buy`, `crack`, and `redeem`.
 - Database or ledger integration plan to replace JSON file state.
 - Admin API key and backoffice IP/domain access rules.
-- Game settings: `winRate`, `bonusRate`, egg names/labels, egg buy prices, per-level crack amounts, max stored eggs, max cracks, and info text.
+- Game settings: `winRate`, `bonusRate`, egg names/labels, per-level cost/prize/image settings, max stored eggs, and info text.
 - Expected callback contract for iframe `GAME_RESULT` or SDK `onResult`.
 - Support flow for `redeem`, because the current code treats redeem as a backoffice settlement action.
 

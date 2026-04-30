@@ -15,7 +15,7 @@ const FORCE_WIN = process.env.FORCE_WIN === 'true';
 const ADMIN_API_KEY = (process.env.ADMIN_API_KEY || '').trim();
 const DEFAULT_WIN_RATE = 0.5;
 const DEFAULT_BONUS_RATE = 0.01;
-const DEFAULT_MAX_CRACKS = 12;
+const DEFAULT_LEGACY_MAX_LEVELS = 12;
 const DEFAULT_MAX_STORED = 3;
 const DEFAULT_CURRENCY = 'RM';
 const LOG_PATH = process.env.LOG_PATH || path.resolve('server', 'logs', 'transactions.jsonl');
@@ -47,7 +47,6 @@ const gameConfig = {
   eggs: DEFAULT_EGG_CONFIG.map((egg) => ({ ...egg })),
   currency: DEFAULT_CURRENCY,
   maxStored: DEFAULT_MAX_STORED,
-  maxCracks: DEFAULT_MAX_CRACKS,
   info: {
     title: DEFAULT_INFO.title,
     steps: [...DEFAULT_INFO.steps],
@@ -124,15 +123,98 @@ const normalizeRate = (value) => {
   return { ok: true, value: Number(normalized.toFixed(6)) };
 };
 
-const normalizePositiveInteger = (value, fieldName, { min = 1, max = 100 } = {}) => {
+const normalizePositiveInteger = (value, fieldName, { min = 1, max = null } = {}) => {
   const numeric = Number(value);
   if (!Number.isInteger(numeric)) {
     return { ok: false, message: `${fieldName} must be a whole number.` };
   }
-  if (numeric < min || numeric > max) {
+  if (numeric < min) {
+    return { ok: false, message: `${fieldName} must be at least ${min}.` };
+  }
+  if (max !== null && numeric > max) {
     return { ok: false, message: `${fieldName} must be between ${min} and ${max}.` };
   }
   return { ok: true, value: numeric };
+};
+
+const normalizeOptionalUrl = (value, fieldName) => {
+  if (typeof value === 'undefined' || value === null || value === '') {
+    return { ok: true, value: undefined };
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    return { ok: false, message: `${fieldName} must be a non-empty URL string.` };
+  }
+  const trimmed = value.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { ok: false, message: `${fieldName} must use http or https.` };
+    }
+  } catch {
+    return { ok: false, message: `${fieldName} must be a valid absolute URL.` };
+  }
+  return { ok: true, value: trimmed };
+};
+
+const normalizeLevelConfig = (rawLevel, index, eggId) => {
+  if (typeof rawLevel === 'number' || typeof rawLevel === 'string') {
+    const amount = Number(rawLevel);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { ok: false, message: `Egg ${eggId} level ${index + 1} cost must be greater than 0.` };
+    }
+    return { ok: true, value: Number(amount.toFixed(2)) };
+  }
+
+  if (!rawLevel || typeof rawLevel !== 'object') {
+    return { ok: false, message: `Egg ${eggId} level ${index + 1} must be an amount or level config object.` };
+  }
+
+  const cost = Number(rawLevel.cost ?? rawLevel.amount ?? rawLevel.price ?? rawLevel.bet);
+  if (!Number.isFinite(cost) || cost <= 0) {
+    return { ok: false, message: `Egg ${eggId} level ${index + 1} cost must be greater than 0.` };
+  }
+  const rawPrize = rawLevel.prize ?? rawLevel.winAmount ?? rawLevel.reward ?? cost;
+  const prize = Number(rawPrize);
+  if (!Number.isFinite(prize) || prize <= 0) {
+    return { ok: false, message: `Egg ${eggId} level ${index + 1} prize must be greater than 0.` };
+  }
+
+  const fullImage = normalizeOptionalUrl(
+    rawLevel.fullImageUrl ?? rawLevel.eggImageUrl ?? rawLevel.imageUrl,
+    `Egg ${eggId} level ${index + 1} fullImageUrl`,
+  );
+  if (!fullImage.ok) return fullImage;
+  const crackImage = normalizeOptionalUrl(
+    rawLevel.crackImageUrl ?? rawLevel.brokenImageUrl ?? rawLevel.crackedImageUrl,
+    `Egg ${eggId} level ${index + 1} crackImageUrl`,
+  );
+  if (!crackImage.ok) return crackImage;
+
+  const name = typeof rawLevel.name === 'string' && rawLevel.name.trim() ? rawLevel.name.trim() : undefined;
+  const label = typeof rawLevel.label === 'string' && rawLevel.label.trim()
+    ? rawLevel.label.trim()
+    : name;
+
+  return {
+    ok: true,
+    value: {
+      ...(name ? { name } : {}),
+      ...(label ? { label } : {}),
+      cost: Number(cost.toFixed(2)),
+      prize: Number(prize.toFixed(2)),
+      ...(fullImage.value ? { fullImageUrl: fullImage.value } : {}),
+      ...(crackImage.value ? { crackImageUrl: crackImage.value } : {}),
+    },
+  };
+};
+
+const getLevelAmount = (level, field = 'cost') => {
+  if (typeof level === 'number') return level;
+  if (level && typeof level === 'object') {
+    const amount = Number(level[field] ?? level.cost ?? level.amount ?? level.price ?? level.bet);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  return 0;
 };
 
 const normalizeEggConfig = (value) => {
@@ -147,38 +229,35 @@ const normalizeEggConfig = (value) => {
     const name = typeof rawEgg?.name === 'string' ? rawEgg.name.trim() : '';
     const label = typeof rawEgg?.label === 'string' ? rawEgg.label.trim() : '';
     const rawLevels = Array.isArray(rawEgg?.levels) ? rawEgg.levels : null;
-    const levels = rawLevels
-      ? rawLevels.map((level) => Number(level))
-      : null;
-    const bet = Number(rawEgg?.bet ?? levels?.[0]);
+    const normalizedLevels = [];
+    if (rawLevels) {
+      if (rawLevels.length === 0) {
+        return { ok: false, message: `Egg ${id} levels must contain at least 1 amount.` };
+      }
+      for (let index = 0; index < rawLevels.length; index += 1) {
+        const normalizedLevel = normalizeLevelConfig(rawLevels[index], index, id || 'unknown');
+        if (!normalizedLevel.ok) return normalizedLevel;
+        normalizedLevels.push(normalizedLevel.value);
+      }
+    }
+    const firstLevelCost = normalizedLevels.length ? getLevelAmount(normalizedLevels[0], 'cost') : 0;
+    const bet = Number(rawEgg?.bet ?? firstLevelCost);
     if (!id) {
       return { ok: false, message: 'Every egg needs a non-empty id.' };
     }
     if (seenIds.has(id)) {
       return { ok: false, message: `Duplicate egg id: ${id}.` };
     }
-    if (levels) {
-      if (levels.length === 0 || levels.length > DEFAULT_MAX_CRACKS) {
-        return { ok: false, message: `Egg ${id} levels must contain 1 to ${DEFAULT_MAX_CRACKS} amounts.` };
-      }
-      const invalidLevel = levels.find((level) => !Number.isFinite(level) || level <= 0);
-      if (typeof invalidLevel !== 'undefined') {
-        return { ok: false, message: `Egg ${id} levels must contain only amounts greater than 0.` };
-      }
-    }
     if (!Number.isFinite(bet) || bet <= 0) {
       return { ok: false, message: `Egg ${id} bet or first level amount must be greater than 0.` };
     }
     seenIds.add(id);
-    const normalizedLevels = levels
-      ? levels.map((level) => Number(level.toFixed(2)))
-      : null;
     eggs.push({
       id,
       name: name || label || id,
       label: label || name || id,
-      bet: normalizedLevels?.[0] ?? Number(bet.toFixed(2)),
-      ...(normalizedLevels ? { levels: normalizedLevels } : {}),
+      bet: normalizedLevels.length ? firstLevelCost : Number(bet.toFixed(2)),
+      ...(normalizedLevels.length ? { levels: normalizedLevels } : {}),
     });
   }
 
@@ -210,7 +289,6 @@ const serializeGameConfig = () => ({
   eggs: gameConfig.eggs.map((egg) => ({ ...egg })),
   currency: gameConfig.currency,
   maxStored: gameConfig.maxStored,
-  maxCracks: gameConfig.maxCracks,
   info: {
     title: gameConfig.info.title,
     steps: [...gameConfig.info.steps],
@@ -226,7 +304,6 @@ const hydrateGameConfig = (raw = {}) => {
   const nextBonusRate = normalizeRate(raw?.bonusRate);
   const nextEggs = normalizeEggConfig(raw?.eggs);
   const nextMaxStored = normalizePositiveInteger(raw?.maxStored, 'maxStored', { min: 1, max: 12 });
-  const nextMaxCracks = normalizePositiveInteger(raw?.maxCracks, 'maxCracks', { min: 1, max: DEFAULT_MAX_CRACKS });
   const nextInfo = normalizeInfoConfig(raw?.info);
   gameConfig.winRate = nextWinRate.ok ? nextWinRate.value : DEFAULT_WIN_RATE;
   gameConfig.bonusRate = nextBonusRate.ok ? nextBonusRate.value : DEFAULT_BONUS_RATE;
@@ -235,7 +312,6 @@ const hydrateGameConfig = (raw = {}) => {
     ? raw.currency.trim()
     : DEFAULT_CURRENCY;
   gameConfig.maxStored = nextMaxStored.ok ? nextMaxStored.value : DEFAULT_MAX_STORED;
-  gameConfig.maxCracks = nextMaxCracks.ok ? nextMaxCracks.value : DEFAULT_MAX_CRACKS;
   gameConfig.info = nextInfo.ok
     ? nextInfo.value
     : { title: DEFAULT_INFO.title, steps: [...DEFAULT_INFO.steps] };
@@ -273,9 +349,21 @@ const buildStatus = (result) => {
   return null;
 };
 
-const buildLevel = (tryIndex) => {
+const getEggMaxLevel = (eggOrType) => {
+  if (eggOrType && typeof eggOrType === 'object' && Array.isArray(eggOrType.levels) && eggOrType.levels.length > 0) {
+    return eggOrType.levels.length;
+  }
+  const eggType = typeof eggOrType === 'string' ? eggOrType : eggOrType?.id;
+  const eggConfig = eggType ? getEggConfigById()[eggType] : null;
+  if (Array.isArray(eggConfig?.levels) && eggConfig.levels.length > 0) {
+    return eggConfig.levels.length;
+  }
+  return DEFAULT_LEGACY_MAX_LEVELS;
+};
+
+const buildLevel = (eggOrType, tryIndex) => {
   if (typeof tryIndex !== 'number' || Number.isNaN(tryIndex)) return 1;
-  return Math.min(Math.max(tryIndex + 1, 1), gameConfig.maxCracks);
+  return Math.min(Math.max(tryIndex + 1, 1), getEggMaxLevel(eggOrType));
 };
 
 const getEggConfigById = () => gameConfig.eggs.reduce((acc, egg) => {
@@ -352,16 +440,27 @@ const serializeState = (userState) => {
 
 const resolveBetAmount = (eggType, tryIndex, fallbackBetAmount = 0) => {
   const eggConfig = getEggConfigById()[eggType];
-  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, gameConfig.maxCracks));
+  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, getEggMaxLevel(eggType)));
   if (Array.isArray(eggConfig?.levels) && eggConfig.levels.length > 0) {
-    const configuredAmount = eggConfig.levels[Math.min(safeTryIndex, eggConfig.levels.length - 1)];
-    return Number(configuredAmount) || 0;
+    const configuredLevel = eggConfig.levels[Math.min(safeTryIndex, eggConfig.levels.length - 1)];
+    return getLevelAmount(configuredLevel, 'cost');
   }
   const baseBet = eggConfig?.bet;
   if (typeof baseBet !== 'number' || Number.isNaN(baseBet)) {
     return Math.max(0, Number(fallbackBetAmount) || 0);
   }
   return baseBet * Math.pow(2, safeTryIndex);
+};
+
+const resolvePrizeAmount = (eggType, tryIndex, fallbackPrizeAmount = 0) => {
+  const eggConfig = getEggConfigById()[eggType];
+  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, getEggMaxLevel(eggType)));
+  if (Array.isArray(eggConfig?.levels) && eggConfig.levels.length > 0) {
+    const configuredLevel = eggConfig.levels[Math.min(safeTryIndex, eggConfig.levels.length - 1)];
+    const prize = getLevelAmount(configuredLevel, 'prize');
+    return prize || getLevelAmount(configuredLevel, 'cost');
+  }
+  return Math.max(0, Number(fallbackPrizeAmount) || 0);
 };
 
 const writeLog = async (entry) => {
@@ -447,7 +546,6 @@ app.put('/admin/game-config', requireAdminAuth, async (req, res) => {
     eggs,
     currency,
     maxStored,
-    maxCracks,
     info,
     infoTitle,
     infoSteps,
@@ -460,7 +558,6 @@ app.put('/admin/game-config', requireAdminAuth, async (req, res) => {
     eggs,
     currency,
     maxStored,
-    maxCracks,
     info,
     infoTitle,
     infoSteps,
@@ -512,14 +609,6 @@ app.put('/admin/game-config', requireAdminAuth, async (req, res) => {
     gameConfig.maxStored = normalizedMaxStored.value;
   }
 
-  if (typeof maxCracks !== 'undefined') {
-    const normalizedMaxCracks = normalizePositiveInteger(maxCracks, 'maxCracks', { min: 1, max: DEFAULT_MAX_CRACKS });
-    if (!normalizedMaxCracks.ok) {
-      return res.status(400).json({ apiStatus: 'error', message: normalizedMaxCracks.message });
-    }
-    gameConfig.maxCracks = normalizedMaxCracks.value;
-  }
-
   if (typeof info !== 'undefined') {
     const normalizedInfo = normalizeInfoConfig(info);
     if (!normalizedInfo.ok) {
@@ -563,7 +652,6 @@ app.post('/game/init', (req, res) => {
       eggs: gameConfig.eggs.map((egg) => ({ ...egg })),
       currency: gameConfig.currency,
       maxStored: gameConfig.maxStored,
-      maxCracks: gameConfig.maxCracks,
       info: {
         title: gameConfig.info.title,
         steps: [...gameConfig.info.steps],
@@ -671,7 +759,8 @@ app.post('/game/action', (req, res) => {
   const effectiveEggType = egg?.id || eggType || 'gold';
   const serverTryIndex = egg?.tries ?? 0;
   const effectiveBetAmount = resolveBetAmount(effectiveEggType, serverTryIndex, betAmount || egg?.bet || 0);
-  const level = buildLevel(serverTryIndex);
+  const maxLevel = getEggMaxLevel(egg || effectiveEggType);
+  const level = buildLevel(egg || effectiveEggType, serverTryIndex);
 
   if (action === 'store') {
     if (egg && userState.activeEggUid === egg.uid) {
@@ -766,7 +855,7 @@ app.post('/game/action', (req, res) => {
 
   // Redeem is handled by backoffice after support confirms the player's screenshot.
   if (action === 'redeem') {
-    const winAmount = effectiveBetAmount;
+    const winAmount = resolvePrizeAmount(effectiveEggType, serverTryIndex, effectiveBetAmount);
     userState.balance = Math.max(0, userState.balance + winAmount);
     if (egg) {
       userState.eggs.delete(egg.uid);
@@ -821,18 +910,19 @@ app.post('/game/action', (req, res) => {
   const bonusRate = gameConfig.bonusRate;
   const didBonus = FORCE_BONUS ? true : Math.random() < bonusRate;
   const didWin = FORCE_WIN ? true : Math.random() < winRate;
-  const winAmount = didWin ? effectiveBetAmount * (didBonus ? 2 : 1) : 0;
+  const prizeAmount = resolvePrizeAmount(effectiveEggType, serverTryIndex, effectiveBetAmount);
+  const winAmount = didWin ? prizeAmount * (didBonus ? 2 : 1) : 0;
   const chargeAmount = egg?.hasCracked ? effectiveBetAmount : 0;
   userState.balance = Math.max(0, userState.balance + winAmount - chargeAmount);
 
   const result = didWin ? 'win' : 'lose';
-  const nextTryIndex = didWin ? Math.min(serverTryIndex + 1, gameConfig.maxCracks) : 0;
+  const nextTryIndex = didWin ? Math.min(serverTryIndex + 1, maxLevel) : 0;
   if (didWin) {
     egg.hasCracked = true;
     egg.tries = nextTryIndex;
     egg.lastWinAmount = winAmount;
     egg.bet = resolveBetAmount(egg.id, nextTryIndex, effectiveBetAmount * 2);
-    egg.isMaxed = nextTryIndex >= gameConfig.maxCracks;
+    egg.isMaxed = nextTryIndex >= maxLevel;
   } else {
     userState.eggs.delete(egg.uid);
     if (userState.activeEggUid === egg.uid) {
@@ -854,7 +944,7 @@ app.post('/game/action', (req, res) => {
     eggId: egg.uid,
     eggType: effectiveEggType,
     tryIndex: nextTryIndex,
-    level: buildLevel(nextTryIndex),
+    level: buildLevel(egg || effectiveEggType, nextTryIndex),
     bonus: didBonus,
   });
   void writeLog({
