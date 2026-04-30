@@ -189,6 +189,14 @@ const normalizeLevelConfig = (rawLevel, index, eggId) => {
     `Egg ${eggId} level ${index + 1} crackImageUrl`,
   );
   if (!crackImage.ok) return crackImage;
+  const winRate = typeof rawLevel.winRate === 'undefined' ? null : normalizeRate(rawLevel.winRate);
+  if (winRate && !winRate.ok) {
+    return { ok: false, message: `Egg ${eggId} level ${index + 1} winRate invalid: ${winRate.message}` };
+  }
+  const bonusRate = typeof rawLevel.bonusRate === 'undefined' ? null : normalizeRate(rawLevel.bonusRate);
+  if (bonusRate && !bonusRate.ok) {
+    return { ok: false, message: `Egg ${eggId} level ${index + 1} bonusRate invalid: ${bonusRate.message}` };
+  }
 
   const name = typeof rawLevel.name === 'string' && rawLevel.name.trim() ? rawLevel.name.trim() : undefined;
   const label = typeof rawLevel.label === 'string' && rawLevel.label.trim()
@@ -202,6 +210,8 @@ const normalizeLevelConfig = (rawLevel, index, eggId) => {
       ...(label ? { label } : {}),
       cost: Number(cost.toFixed(2)),
       prize: Number(prize.toFixed(2)),
+      ...(winRate ? { winRate: winRate.value } : {}),
+      ...(bonusRate ? { bonusRate: bonusRate.value } : {}),
       ...(fullImage.value ? { fullImageUrl: fullImage.value } : {}),
       ...(crackImage.value ? { crackImageUrl: crackImage.value } : {}),
     },
@@ -461,6 +471,18 @@ const resolvePrizeAmount = (eggType, tryIndex, fallbackPrizeAmount = 0) => {
     return prize || getLevelAmount(configuredLevel, 'cost');
   }
   return Math.max(0, Number(fallbackPrizeAmount) || 0);
+};
+
+const resolveLevelRate = (eggType, tryIndex, field, fallbackRate) => {
+  const eggConfig = getEggConfigById()[eggType];
+  const safeTryIndex = Math.max(0, Math.min(Number(tryIndex) || 0, getEggMaxLevel(eggType)));
+  if (Array.isArray(eggConfig?.levels) && eggConfig.levels.length > 0) {
+    const configuredLevel = eggConfig.levels[Math.min(safeTryIndex, eggConfig.levels.length - 1)];
+    if (configuredLevel && typeof configuredLevel === 'object' && typeof configuredLevel[field] === 'number') {
+      return configuredLevel[field];
+    }
+  }
+  return fallbackRate;
 };
 
 const writeLog = async (entry) => {
@@ -906,8 +928,8 @@ app.post('/game/action', (req, res) => {
   }
 
   userState.activeEggUid = egg.uid;
-  const winRate = gameConfig.winRate;
-  const bonusRate = gameConfig.bonusRate;
+  const winRate = resolveLevelRate(effectiveEggType, serverTryIndex, 'winRate', gameConfig.winRate);
+  const bonusRate = resolveLevelRate(effectiveEggType, serverTryIndex, 'bonusRate', gameConfig.bonusRate);
   const didBonus = FORCE_BONUS ? true : Math.random() < bonusRate;
   const didWin = FORCE_WIN ? true : Math.random() < winRate;
   const prizeAmount = resolvePrizeAmount(effectiveEggType, serverTryIndex, effectiveBetAmount);

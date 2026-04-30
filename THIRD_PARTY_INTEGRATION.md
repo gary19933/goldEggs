@@ -276,7 +276,7 @@ Example:
 }
 ```
 
-`levels` controls how many levels each egg has. When `levels` is provided, `levels[0]` is level 1, `levels[1]` is level 2, and so on. Each level can be either a legacy amount or a full level config object with `label`/`name`, `cost`, `prize`, `fullImageUrl`, and `crackImageUrl`. `bet` is only the fallback/base selling price when `levels` is omitted.
+`levels` controls how many levels each egg has. When `levels` is provided, `levels[0]` is level 1, `levels[1]` is level 2, and so on. Each level can be either a legacy amount or a full level config object with `label`/`name`, `cost`, `prize`, `winRate`, `bonusRate`, `fullImageUrl`, and `crackImageUrl`. If a level omits `winRate` or `bonusRate`, the global game rates are used. `bet` is only the fallback/base selling price when `levels` is omitted.
 
 ## Production Handoff Checklist
 

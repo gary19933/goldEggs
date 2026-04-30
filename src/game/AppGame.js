@@ -992,11 +992,15 @@ export class AppGame {
     const crackImageUrl = typeof (level.crackImageUrl ?? level.brokenImageUrl ?? level.crackedImageUrl) === 'string'
       ? (level.crackImageUrl ?? level.brokenImageUrl ?? level.crackedImageUrl).trim()
       : '';
+    const winRate = Number(level.winRate);
+    const bonusRate = Number(level.bonusRate);
     return {
       ...(name ? { name } : {}),
       ...(label ? { label } : {}),
       cost: Number(cost.toFixed(2)),
       prize: Number((Number.isFinite(prize) && prize > 0 ? prize : cost).toFixed(2)),
+      ...(Number.isFinite(winRate) ? { winRate } : {}),
+      ...(Number.isFinite(bonusRate) ? { bonusRate } : {}),
       ...(fullImageUrl ? { fullImageUrl } : {}),
       ...(crackImageUrl ? { crackImageUrl } : {}),
     };

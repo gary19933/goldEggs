@@ -265,6 +265,17 @@ function buildLevel(eggOrType, tryIndex) {
   return Math.min(Math.max((Number(tryIndex) || 0) + 1, 1), getEggMaxLevel(eggOrType));
 }
 
+function getLevelRate(egg, tryIndex, field, fallbackRate) {
+  if (Array.isArray(egg?.levels) && egg.levels.length > 0) {
+    const safeIndex = Math.max(0, Math.min(Number(tryIndex) || 0, egg.levels.length - 1));
+    const level = egg.levels[safeIndex];
+    if (level && typeof level === 'object' && typeof level[field] === 'number') {
+      return level[field];
+    }
+  }
+  return fallbackRate;
+}
+
 function recordHistory(userState, status, egg, extra = {}) {
   const entry = {
     status,
@@ -477,8 +488,8 @@ function mockAction(payload = {}) {
   }
 
   userState.activeEggUid = egg.uid;
-  const baseWinChance = 0.5 / Math.pow(2, Math.max(0, serverTryIndex));
-  const bonusChance = 0.01;
+  const baseWinChance = getLevelRate(egg, serverTryIndex, 'winRate', 0.5 / Math.pow(2, Math.max(0, serverTryIndex)));
+  const bonusChance = getLevelRate(egg, serverTryIndex, 'bonusRate', 0.01);
   const didBonus = FORCE_BONUS ? true : Math.random() < bonusChance;
   const didWin = FORCE_WIN ? true : Math.random() < baseWinChance;
   const winAmount = didWin ? effectiveBetAmount * (didBonus ? 2 : 1) : 0;

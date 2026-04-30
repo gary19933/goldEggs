@@ -106,8 +106,9 @@ Notes:
 - `eggs` must be a non-empty array. Each egg needs a unique `id`; `name` and `label` are optional display fields.
 - `bet` is the selling price/base amount. If `levels` is provided, `levels[0]` becomes the buy price and first crack value.
 - `levels` controls how many levels the egg has. If an egg has 12 level entries, that egg has 12 levels.
-- `levels` may contain positive amounts for legacy configs, or objects with `label`/`name`, `cost`, `prize`, `fullImageUrl`, and `crackImageUrl`.
+- `levels` may contain positive amounts for legacy configs, or objects with `label`/`name`, `cost`, `prize`, `winRate`, `bonusRate`, `fullImageUrl`, and `crackImageUrl`.
 - `cost` is the amount charged for that level. `prize` is the amount credited on win/redeem before the bonus multiplier.
+- `winRate` and `bonusRate` can be set globally, or per level. If a level omits them, the global `winRate` and `bonusRate` are used.
 - `fullImageUrl` and `crackImageUrl` should point to images hosted by the third-party CMS/CDN.
 - If `levels` is not provided, the game keeps the old behavior: level values double from `bet`.
 - `maxStored` must be a whole number from `1` to `12`.
