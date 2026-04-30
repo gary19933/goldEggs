@@ -464,7 +464,16 @@ export class AppGame {
     return `${this._getCurrency()}${amount ?? 0}`;
   }
 
+  _getEggTemplateById(eggType) {
+    return this.eggCatalog.find((egg) => egg.id === eggType) || null;
+  }
+
   _getTabImage(tabId, isActive) {
+    const template = this._getEggTemplateById(tabId);
+    const customUrl = isActive
+      ? (template?.tabActiveImageUrl || template?.tabImageUrl)
+      : (template?.tabImageUrl || template?.tabActiveImageUrl);
+    if (customUrl) return customUrl;
     const normalizedId = typeof tabId === 'string' ? tabId.toLowerCase() : '';
     if (normalizedId === 'premium') {
       return isActive
@@ -847,6 +856,8 @@ export class AppGame {
   }
 
   _getBackgroundImageForTab(tabId) {
+    const template = this._getEggTemplateById(tabId);
+    if (template?.backgroundImageUrl) return template.backgroundImageUrl;
     const normalizedId = typeof tabId === 'string' ? tabId.toLowerCase() : '';
     if (normalizedId === 'premium') {
       return '/assets/interface/premium/premium-bg.png';
@@ -864,6 +875,8 @@ export class AppGame {
   }
 
   _getButtonImageForType(eggType) {
+    const template = this._getEggTemplateById(eggType);
+    if (template?.buttonImageUrl) return template.buttonImageUrl;
     const normalizedId = typeof eggType === 'string' ? eggType.toLowerCase() : '';
     if (normalizedId === 'premium') {
       return '/assets/interface/premium/premium-button.png';
@@ -872,6 +885,8 @@ export class AppGame {
   }
 
   _getLabelImageForType(eggType) {
+    const template = this._getEggTemplateById(eggType);
+    if (template?.labelImageUrl) return template.labelImageUrl;
     const normalizedId = typeof eggType === 'string' ? eggType.toLowerCase() : '';
     if (normalizedId === 'premium') {
       return '/assets/interface/premium/premium-list-name.png';
@@ -905,15 +920,15 @@ export class AppGame {
 
   async _applyButtonSkin(button, eggType) {
     if (!button) return;
-    const normalizedType = typeof eggType === 'string' ? eggType.toLowerCase() : '';
-    const safeType = normalizedType === 'premium' ? 'premium' : 'gold';
-    if (button._skinType === safeType && button._bgSprite?.visible) return;
+    const skinType = typeof eggType === 'string' && eggType ? eggType : 'gold';
+    const imageUrl = this._getButtonImageForType(skinType);
+    const skinKey = `${skinType}:${imageUrl}`;
+    if (button._skinType === skinKey && button._bgSprite?.visible) return;
 
     const requestId = (button._skinRequestId ?? 0) + 1;
     button._skinRequestId = requestId;
-    button._skinType = safeType;
+    button._skinType = skinKey;
 
-    const imageUrl = this._getButtonImageForType(safeType);
     try {
       const texture = await Assets.load(imageUrl);
       if (button._skinRequestId !== requestId) return;
@@ -926,20 +941,21 @@ export class AppGame {
 
   async _ensureEggLabelSkin(eggType) {
     if (!this.eggLabelBg) return;
-    const normalizedType = typeof eggType === 'string' ? eggType.toLowerCase() : '';
-    const safeType = normalizedType === 'premium' ? 'premium' : 'gold';
-    if (this.eggLabelBg._skinType === safeType && this.eggLabelBg.texture) return;
+    const skinType = typeof eggType === 'string' && eggType ? eggType : 'gold';
+    const imageUrl = this._getLabelImageForType(skinType);
+    const skinKey = `${skinType}:${imageUrl}`;
+    if (this.eggLabelBg._skinType === skinKey && this.eggLabelBg.texture) return;
 
     const requestId = (this.eggLabelBg._skinRequestId ?? 0) + 1;
     this.eggLabelBg._skinRequestId = requestId;
-    this.eggLabelBg._skinType = safeType;
+    this.eggLabelBg._skinType = skinKey;
 
     try {
-      const texture = await Assets.load(this._getLabelImageForType(safeType));
+      const texture = await Assets.load(imageUrl);
       if (this.eggLabelBg._skinRequestId !== requestId) return;
       this.eggLabelBg.texture = texture;
       const activeEgg = this._getActiveEgg();
-      if ((activeEgg?.id ?? this.activeTabId) === safeType) {
+      if ((activeEgg?.id ?? this.activeTabId) === skinType) {
         this._layoutEggLabelBackground(this.app?.renderer?.width || 800, this._playLayout?.labelY);
         this.eggLabelBg.visible = !!activeEgg;
       }
@@ -1027,11 +1043,17 @@ export class AppGame {
             : (typeof egg?.label === 'string' && egg.label.trim() ? egg.label.trim() : id || 'Egg');
           const label = typeof egg?.label === 'string' && egg.label.trim() ? egg.label.trim() : name;
           const firstCost = levels?.length ? this._getLevelCost(levels[0]) : 0;
+          const getUrl = (field) => (typeof egg?.[field] === 'string' && egg[field].trim() ? egg[field].trim() : undefined);
           return {
             id,
             name,
             label,
             bet: firstCost || (Number(egg?.bet) || 0),
+            ...(getUrl('backgroundImageUrl') ? { backgroundImageUrl: getUrl('backgroundImageUrl') } : {}),
+            ...(getUrl('tabImageUrl') ? { tabImageUrl: getUrl('tabImageUrl') } : {}),
+            ...(getUrl('tabActiveImageUrl') ? { tabActiveImageUrl: getUrl('tabActiveImageUrl') } : {}),
+            ...(getUrl('buttonImageUrl') ? { buttonImageUrl: getUrl('buttonImageUrl') } : {}),
+            ...(getUrl('labelImageUrl') ? { labelImageUrl: getUrl('labelImageUrl') } : {}),
             ...(levels?.length ? { levels } : {}),
           };
         })

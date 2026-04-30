@@ -104,6 +104,8 @@ Notes:
 - You can update only one field (e.g. just `maxStored`).
 - Accepts decimal `0..1` or percentage `0..100`.
 - `eggs` must be a non-empty array. Each egg needs a unique `id`; `name` and `label` are optional display fields.
+- Egg type skin fields are optional: `backgroundImageUrl`, `tabImageUrl`, `tabActiveImageUrl`, `buttonImageUrl`, and `labelImageUrl`.
+- If an egg type omits those skin fields, the game inherits the existing gold/premium fallback design.
 - `bet` is the selling price/base amount. If `levels` is provided, `levels[0]` becomes the buy price and first crack value.
 - `levels` controls how many levels the egg has. If an egg has 12 level entries, that egg has 12 levels.
 - `levels` may contain positive amounts for legacy configs, or objects with `label`/`name`, `cost`, `prize`, `winRate`, `bonusRate`, `fullImageUrl`, and `crackImageUrl`.

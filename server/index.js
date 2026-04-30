@@ -239,6 +239,16 @@ const normalizeEggConfig = (value) => {
     const name = typeof rawEgg?.name === 'string' ? rawEgg.name.trim() : '';
     const label = typeof rawEgg?.label === 'string' ? rawEgg.label.trim() : '';
     const rawLevels = Array.isArray(rawEgg?.levels) ? rawEgg.levels : null;
+    const backgroundImage = normalizeOptionalUrl(rawEgg?.backgroundImageUrl, `Egg ${id || 'unknown'} backgroundImageUrl`);
+    if (!backgroundImage.ok) return backgroundImage;
+    const tabImage = normalizeOptionalUrl(rawEgg?.tabImageUrl, `Egg ${id || 'unknown'} tabImageUrl`);
+    if (!tabImage.ok) return tabImage;
+    const tabActiveImage = normalizeOptionalUrl(rawEgg?.tabActiveImageUrl, `Egg ${id || 'unknown'} tabActiveImageUrl`);
+    if (!tabActiveImage.ok) return tabActiveImage;
+    const buttonImage = normalizeOptionalUrl(rawEgg?.buttonImageUrl, `Egg ${id || 'unknown'} buttonImageUrl`);
+    if (!buttonImage.ok) return buttonImage;
+    const labelImage = normalizeOptionalUrl(rawEgg?.labelImageUrl, `Egg ${id || 'unknown'} labelImageUrl`);
+    if (!labelImage.ok) return labelImage;
     const normalizedLevels = [];
     if (rawLevels) {
       if (rawLevels.length === 0) {
@@ -267,6 +277,11 @@ const normalizeEggConfig = (value) => {
       name: name || label || id,
       label: label || name || id,
       bet: normalizedLevels.length ? firstLevelCost : Number(bet.toFixed(2)),
+      ...(backgroundImage.value ? { backgroundImageUrl: backgroundImage.value } : {}),
+      ...(tabImage.value ? { tabImageUrl: tabImage.value } : {}),
+      ...(tabActiveImage.value ? { tabActiveImageUrl: tabActiveImage.value } : {}),
+      ...(buttonImage.value ? { buttonImageUrl: buttonImage.value } : {}),
+      ...(labelImage.value ? { labelImageUrl: labelImage.value } : {}),
       ...(normalizedLevels.length ? { levels: normalizedLevels } : {}),
     });
   }
